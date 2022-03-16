@@ -1,0 +1,19 @@
+# Maven
+target/
+
+# VSCode
+.vscode/
+.devcontainer/
+
+# Eclipse
+.settings/
+.classpath
+.project
+
+# ItelliJ IDEA
+.idea
+*.iml
+
+# Collection
+cord-19_2020-07-16.tar.gz
+cord-19_2020-07-16*

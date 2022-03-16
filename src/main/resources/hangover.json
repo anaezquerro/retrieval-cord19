@@ -1,0 +1,176 @@
+{
+  "title": "THE HANGOVER",
+  "written_by": [
+    {
+      "first": "Jon",
+      "last": "Lucas"
+    },
+    {
+      "first": "Scott",
+      "last": "Moore"
+    }
+  ],
+  "date": "2007-09-30",
+  "scenes": [
+    {
+      "transition": "FADE IN",
+      "header": "EXT. BEL AIR BAY CLUB -- PACIFIC PALISADES, CA -- MORNING",
+      "contents": [
+        {
+          "type": "ACTION",
+          "text": "It’s a beautiful spring morning in the Palisades. High atop the cliffs, looking out over the Pacific Ocean, sits the exclusive BEL AIR BAY CLUB. Workers bustle about the lawn, setting up a high-end wedding."
+        },
+        {
+          "type": "ACTION",
+          "text": "A STRING QUARTET warms up. A team of FLORISTS arrangecenterpieces. CATERERS set the white linen tables..."
+        },
+        {
+          "type": "INTERCUT",
+          "transition": "",
+          "text": "INT. BRIDAL SUITE -- DAY"
+        },
+        {
+          "type": "ACTION",
+          "text": "A simple, classic wedding dress hangs on a closet door in this sun-drenched bridal suite. Sitting at the makeup table, surrounded by her bridesmaids, is the beautiful bride, TRACY TURNER, 20’s. She’s busy doing her makeup."
+        },
+        {
+          "type": "ACTION",
+          "text": "Just then, Tracy’s rich, stern FATHER, 50’s, blows in."
+        },
+        {
+          "type": "DIALOG",
+          "who": "MR. TURNER",
+          "text": "Any word from Doug?"
+        },
+        {
+          "type": "ACTION",
+          "text": "The way he spits out “Doug” tells us all we need to know about how Mr. Turner feels about his future son-in-law."
+        },
+        {
+          "type": "DIALOG",
+          "who": "TRACY",
+          "text": "No, but I’m sure he’s--"
+        },
+        {
+          "type": "ACTION",
+          "text": "Just then, Tracy’s CELLPHONE rings. She quickly answers it."
+        },
+        {
+          "type": "DIALOG",
+          "who": "TRACY (CONT'D)",
+          "text": "Hello?"
+        },
+        {
+          "type": "INTERCUT",
+          "transition": "INTERCUT WITH:",
+          "text": "TEXT. MOJAVE DESERT -- MORNING"
+        },
+        {
+          "type": "ACTION",
+          "text": "Heat-waves rise off the Mojave. Standing at a lone, dust-covered payphone in the middle of the desert is"
+        },
+        {
+          "type": "ACTION",
+          "text": "VICK LENNON"
+        },
+        {
+          "type": "ACTION",
+          "text": "He’s in his late 20’s, tall, rugged -- and currently a mess. His shirt is ripped open, his aviator sunglasses are bent, his lip is bloodied, and he clearly hasn’t slept in days."
+        },
+        {
+          "type": "DIALOG",
+          "who": "VICK",
+          "text": "Tracy, it’s Vick."
+        },
+        {
+          "type": "ACTION",
+          "text": "Parked on the dirt road behind Vick is his near-totalled 1967 Cadillac Deville convertible; it’s scratched, dented, filthy -- and missing its passenger side door."
+        },
+        {
+          "type": "ACTION",
+          "text": "Slouched inside are TWO OTHER GUYS, also looking like hell."
+        },
+        {
+          "type": "DIALOG",
+          "who": "TRACY",
+          "text": "Hey Vick!"
+        },
+        {
+          "type": "DIALOG",
+          "who": "VICK",
+          "text": "Listen, honey...The bachelor party got a little out of control and, well...we lost Doug."
+        },
+        {
+          "type": "DIALOG",
+          "who": "TRACY",
+          "parenthetical": "(her jaw dropping)",
+          "text": "What?! But we’re getting married in like four hours!"
+        },
+        {
+          "type": "ACTION",
+          "text": "Vick squints at the rising sun."
+        },
+        {
+          "type": "DIALOG",
+          "who": "VICK",
+          "text": "Yeah, that’s not gonna happen."
+        }
+      ]
+    },
+    {
+      "transition": "CUT TO:",
+      "header": "TITLE OVER BLACK: 40 HOURS EARLIER",
+      "contents": []
+    },
+    {
+      "transition": "CUT TO:",
+      "header": "EXT. THE 10 FREEWAY -- DAY",
+      "contents": [
+        {
+          "type": "ACTION",
+          "text": "The top down, The Who’s “Baba O’Riley” blasting from the stereo, Vick’s pristine Cadillac convertible rockets down Highway 10 towards Nevada."
+        },
+        {
+          "type": "ACTION",
+          "text": "At the wheel is Vick, looking as sharp as his Caddy in a half-open shirt and mint condition aviators."
+        },
+        {
+          "type": "ACTION",
+          "text": "Sitting shotgun is the groom, DOUG BILLINGS, late 20’s, handsome, barefoot, crunchy -- an all around great guy."
+        },
+        {
+          "type": "ACTION",
+          "text": "Behind Vick sits ALAN MERVISH, late 20’s, an anal tax attorney from Connecticut, his Izod shirt tucked into his khakis. He’s currently applying sun screen to his forehead."
+        },
+        {
+          "type": "ACTION",
+          "text": "Next to Alan is STU PRYCE, late 20’s, former high school linebacker and lovably dimwitted father of two. He drums the back of the frontseat to the music, totally pumped, like this is his first time out of the house in years. Because it is."
+        },
+        {
+          "type": "DIALOGUE",
+          "who": "STU",
+          "text": "Dude this is already the best weekend ever!"
+        },
+        {
+          "type": "DIALOGUE",
+          "who": "VICK",
+          "text": "Stu, relax, we’re still on the 10."
+        },
+        {
+          "type": "DIALOGUE",
+          "who": "STU",
+          "text": "Oh, did I show you pictures of my kids?!"
+        },
+        {
+          "type": "DIALOGUE", 
+          "who": "DOUG",
+          "text": "No, dude, show ‘em."
+        },
+        {
+          "type": "ACTION",
+          "text": "Stu fishes pictures out of his wallet and eagerly shows them to Doug in the front seat. Doug is clearly the core of this group, the glue that holds these childhood friends together."
+        }
+      ]
+    }
+  ]
+}
