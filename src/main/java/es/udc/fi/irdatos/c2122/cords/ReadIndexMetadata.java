@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -15,24 +16,19 @@ import com.fasterxml.jackson.dataformat.csv.CsvMapper;
 import com.fasterxml.jackson.dataformat.csv.CsvSchema;
 
 import es.udc.fi.irdatos.c2122.util.ObjectReaderUtils;
-import org.apache.lucene.analysis.en.EnglishAnalyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.*;
 import org.apache.lucene.index.*;
-import org.apache.lucene.queryparser.flexible.standard.config.FieldDateResolutionFCListener;
-import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.store.LockObtainFailedException;
-import org.apache.lucene.util.packed.DirectMonotonicReader;
+import org.apache.commons.io.FileUtils;
 
-public class ParseMetadata {
-    private static final Path DEFAULT_COLLECTION_PATH = Paths.get("cord-19_2020-07-16",
-            "2020-07-16");
+
+public class ReadIndexMetadata {
+    private static final Path DEFAULT_COLLECTION_PATH = Paths.get("cord-19_2020-07-16", "2020-07-16");
     private static String METADATA_FILE_NAME = "metadata.csv";
-
     private static final ObjectReader ARTICLE_READER = JsonMapper.builder().findAndAddModules().build()
             .readerFor(Article.class);
-
 
     private static final String[] readArticle(Path articlePath) {
         Article article;
@@ -71,7 +67,6 @@ public class ParseMetadata {
             }
             figures.append(figure.getValue().text());
             figures.append('\n');
-
         }
 
         String[] articleContent = new String[]{articleText.toString(), bibliography.toString(), figures.toString()};
@@ -96,64 +91,71 @@ public class ParseMetadata {
     }
 
 
-    public static void main(String[] args) {
-
+    private static final List<MetadataArticle> readMetadata() {
         Path collectionPath = DEFAULT_COLLECTION_PATH;
         Path metadataPath = collectionPath.resolve(METADATA_FILE_NAME);
-
         CsvSchema schema = CsvSchema.emptySchema().withHeader().withArrayElementSeparator("; ");
         ObjectReader reader = new CsvMapper().readerFor(MetadataArticle.class).with(schema);
 
         List<MetadataArticle> metadata;
         try {
             metadata = ObjectReaderUtils.readAllValues(metadataPath, reader);
-        } catch (IOException ex) {
-            System.out.println("An IOException occurred while reading " + metadataPath.toString());
-            return;
+        } catch (IOException e) {
+            System.out.println("IOException while reading metadata in " + metadataPath.toString());
+            e.printStackTrace();
+            return null;
         }
+        return metadata;
+    }
 
+    private static void indexMetadata(List<MetadataArticle> metadata, String indexFolder) {
+        Path collectionPath = DEFAULT_COLLECTION_PATH;
 
-        // Creating index folder
-        String indexFolder = "Index-StandardAnalyzer";
+        // Creation of IndexWriter
         IndexWriterConfig config = new IndexWriterConfig(new StandardAnalyzer());
         IndexWriter writer = null;
         try {
             writer = new IndexWriter(FSDirectory.open(Paths.get(indexFolder)), config);
-        } catch (CorruptIndexException e1) {
-            System.out.println("CorruptIndexException: Creating " + indexFolder);
-            e1.printStackTrace();
-        } catch (LockObtainFailedException e1) {
-            System.out.println("LockObtainFailedException: Creating " + indexFolder);
-            e1.printStackTrace();
-        } catch (IOException e1) {
-            System.out.println("IOException: Creating " + indexFolder);
-            e1.printStackTrace();
+        } catch (CorruptIndexException e) {
+            System.out.println("CorruptIndexException while creating IndexWriter at " + indexFolder);
+            e.printStackTrace();
+        } catch (LockObtainFailedException e) {
+            System.out.println("LockObtainFailedException while creating IndexWriter at " + indexFolder);
+            e.printStackTrace();
+        } catch (IOException e) {
+            System.out.println("IOException while creating IndexWriter at " + indexFolder);
+            e.printStackTrace();
         }
 
 
-        // Indexing articles
+        // Index each metadata row as a new document
         for (MetadataArticle article : metadata) {
-
             Document doc = new Document();
             doc.add(new StoredField("docID", article.cordUid()));
             doc.add(new TextField("title", article.title(), Field.Store.YES));
             doc.add(new TextField("abstract", article.abstrac(), Field.Store.YES));
 
-            String authors = String.join("; ", article.authors());
-            doc.add(new StoredField("authors", authors));
+            // Remove comments to index authors (check README-iteration1)
+            // String authors = String.join("; ", article.authors());
+            // doc.add(new StoredField("authors", authors));
 
-            // Read PMC and PDF paths
+            // Read PMC and PDF paths (check README-iteration1 to understand this block of code)
             List<Path> pdfPaths = article.pdfFiles().stream().map(pdfPath -> collectionPath.resolve(pdfPath)).collect(Collectors.toList());
             String[] articleContent;
             if (article.pmcFile().length() != 0 && article.pdfFiles().size() <= 1) {
                 articleContent = readArticle(collectionPath.resolve(article.pmcFile()));
-            } else if (article.pdfFiles().size() >= 1){
+            } else if (article.pmcFile().length() != 0 && article.pdfFiles().size() >= 1) {
+                List<Path> pmcpdfPaths = new ArrayList<>();
+                pmcpdfPaths.addAll(pdfPaths);
+                pmcpdfPaths.set(0, collectionPath.resolve(article.pmcFile()));
+                articleContent = readArticles(pmcpdfPaths);
+            } else if (article.pmcFile().length() == 0 && article.pdfFiles().size() >= 1){
                 articleContent = readArticles(pdfPaths);
             } else {
                 articleContent = new String[] {"", "", ""};
             }
 
-            // Save body of articles indexed and
+            // Save body, references and figure notes as new fields in the document
             FieldType bodyFieldType = new FieldType();
             bodyFieldType.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS);
             doc.add(new Field("body", articleContent[0], bodyFieldType));
@@ -163,19 +165,48 @@ public class ParseMetadata {
             try {
                 writer.addDocument(doc);
             } catch (CorruptIndexException e) {
+                System.out.println("CorruptIndexException while trying to write the document " + article.cordUid());
                 e.printStackTrace();
             } catch (IOException e) {
+                System.out.println("IOException while trying to write the document " + article.cordUid());
                 e.printStackTrace();
             }
         }
 
+        // Close the writer
         try {
             writer.commit();
             writer.close();
         } catch (CorruptIndexException e) {
+            System.out.println("CorruptIndexException while closing the index writer");
             e.printStackTrace();
         } catch (IOException e) {
+            System.out.println("IOException while closing the index writer");
             e.printStackTrace();
         }
+
+    }
+
+    public static void main(String[] args) {
+        String indexFolder;
+        if (args.length == 0) {
+            indexFolder = "Index-StandardAnalyzer";
+        } else {
+            indexFolder = args[0];
+        }
+
+        if (new File(indexFolder).exists()) {
+            try {
+                FileUtils.deleteDirectory(new File(indexFolder));
+            } catch (IOException e) {
+                System.out.println("IOException while removing " + indexFolder + " folder");
+            }
+        }
+
+        // Read metadata.csv
+        List<MetadataArticle> metadata = readMetadata();
+
+        // Create index
+        indexMetadata(metadata, indexFolder);
     }
 }
