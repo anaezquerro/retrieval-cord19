@@ -1,5 +1,11 @@
 # GCED-Information Retrieval Assignment- Iteration 1
 
+**Table of Contents**
+
+- [English](#English)
+- [Español](#Español)
+
+##English
 *Documentation of the first iteration Java code of GCED-Information Retrieval assignment (18/03/2022).*
 
 This Markdown contains all the details about Java classes and methods implemented to tackle Iteration-1 objectives:
@@ -146,4 +152,129 @@ section title (`title[str]`) to which they belong.
 and map to a `Reference` object constructed from each corresponding reference title.
 - `ref_entries`: Similar to `bib_entries` but in this case the references are to items of the paper itself 
 (figures and tables).
+
+
+***
+
+##Español
+*Documentación de la primera iteración del código Java de la tarea GCED-Information Retrieval (18/03/2022).*
+
+Este Markdown contiene todos los detalles sobre las clases y los métodos de Java implementados para abordar los objetivos de la iteración 1:
+
+1. Analiza el contenido de los archivos CSV y JSON relativos a los artículos de TREC-COVID.
+2. Indexa los *elementos* de relevancia de este contenido utilizando las utilidades de Apache Lucene aprendidas en clase.
+
+En el paquete `es.udc.fi.irdatos.c2122.cords` de Maven Project encontramos tres clases:
+
+- `ReadIndexMetadata.java`: analiza el contenido del archivo `metadata.csv` y usa sus columnas (solo se consideran algunas) para
+  construir *Fields* y agregarlos a *Documents*.
+- `ArticleMetadata.java`: Define el esquema CSV de `metadata.csv` (columnas) para obtener el contenido de las filas como una lista.
+- `Artículo.java`: Define el esquema JSON de cada archivo PMC/PDF de los artículos.
+
+Nótese que en las primeras líneas de `ReadIndexMetadata` la estructura de carpetas necesaria para importar la colección de documentos y el archivo `metadata.csv` es la siguiente:
+
+````text
+--- root
+    --- cord-19_2020-07-16
+        --- 2020-07-16
+            --- document_parses
+                --- pdf_json
+                --- pmc_json
+            --- metadata.csv
+````
+
+
+## Clase `ReadIndexMetadata`
+
+Implementa el proceso completo de analizar `metadata.csv` y los archivos de los artículos (en formato JSON), e indexar los campos más relevantes de los datos obtenidos (en esta iteración, la relevancia de un elemento está directamente relacionada con su usabilidad en la Iteración-2).
+El resultado de su ejecución es la creación de una carpeta en la que se almacena el índice invertido.
+
+
+Esta clase contiene cinco métodos; cada uno de ellos encargado de realizar los pasos antes mencionados. En las siguientes secciones se describe cada método y su propósito.
+
+### Método `readArticle`
+
+Lee el archivo JSON y procesa su contenido. Como los archivos PMC y PDF tienen la misma estructura, ambos tipos se pueden leer con este método.
+
+- Argumentos:
+  - `articlePath (Path)`: Representación de la ruta Java del archivo JSON a analizar.
+- Devuelve:
+  - `articleContent (String[])`: Como vemos en el código, la variable devuelta `articleContent`
+    está destinado a tener tres elementos `string`: el texto del artículo (es decir, el campo *body_text* del campo JSON), los títulos de referencias concatenados (es decir, *bib_entries.title*) y las notas concatenadas de figuras y tablas en el artículo (es decir, *ref_entries*).
+
+### método `readArticles`
+
+Usando el método `readArticle`, lee múltiples archivos JSON con una lista de rutas proporcionadas y concatena su contenido por campo (de interés).
+
+- Argumentos:
+  - `articlesPath`: Lista de las rutas de los archivos JSON.
+- Devuelve:
+  - `articlesContent`: vector de *Strings* de tres elementos (nótese que tiene la misma longitud que el vector devuelto en `readArticle()`), donde cada elemento se corresponde con la concatenación de un mismo campo (de interés) para todos los archivo JSON.
+
+El propósito de estas funciones es solucionar el problema de tener más de un archivo PDF en una fila del CSV de metadatos.
+A través de un análisis descriptivo de `metadata.csv` implementado en Python (este código no se proporciona), se llegó a algunas conclusiones:
+
+1. No hay ningún artículo (es decir, fila) en los metadatos con más de un archivo PMC.
+2. Algunos artículos (filas) tienen más de un archivo PDF.
+
+El [repositorio oficial de GitHub de TREC-COVID Challenge] (https://github.com/allenai/cord19) informa sobre este problema y propone múltiples soluciones al tener más de un archivo PDF: analizar el primer archivo (en esta iteración se comprobó que, en estos casos, los atributos del primer archivo PDF eran los mismos que la fila correspondiente en `metadata.csv`), analizar todos los archivos o, en caso de que exista un archivo PMC, solo analizar este (discutimos este tema en la sección `indexMetadata`).
+
+Sin embargo, se menciona que tener múltiples rutas de archivos PDF no significa que cada archivo PDF sea un artículo, es solo un representación diferente del mismo artículo. Esa es la razón por la que consideramos conveniente condensar toda la información de los PDF (del mismo artículo) en los mismos tres campos (nótese que estos campos se pasarán como un *Field* del *Document* de Lucene).
+
+### método `readMetadata`
+
+Usando la clase `ArticleMetadata` como esquema CSV, lee `metadata.csv` y devuelve cada fila como una lista de elementos `ArticleMetadata`.
+
+### Método `indexMetadata`
+
+Con el contenido analizado de los métodos `readMetadata()`, `readArticle()` y `readArticles()`, crea un índice invertido considerando cada artículo (es decir, información de la fila de metadatos) como un *Document* con los siguientes *Fields*:
+- `docID`: Obtenido directamente de la columna `metadata.cord_uid`. Tipo *stored* (pero no *indexed* ni *tokenized*).
+- `title`: Obtenido de la columna `metadata.title`. *indexed*, *tokenized* y *stored*.
+- `abstrac`: Obtenido de la columna `metadata.abstrac`. *indexed*, *tokenized* y *stored* .
+- `body`: Obtenido mediante la concatenación de títulos de secciones y párrafos del artículo (usando los métodos `readArticle()` o  `readArticles()`).
+- `references`: Obtenido de la concatenación de los títulos de cada referencia en cada artículo. *indexed*, *tokenized* y *stored*.
+- `figures`: Obtenido de la concatenación de los pies de texto de las figuras del artículo. *indexed*, *tokenized* y *stored*.
+
+Para crear el *Document* de cada artículo, fue necesario analizar los archivos JSON para obtener la información relativa al cuerpo del texto, referencias y figuras. Siguiendo las recomendaciones del [repositorio GitHub de TREC-COVID Challenge](https://github.com/allenai/cord19) sobre el análisis de archivos PMC y/o PDF, en esta iteración se consideró:
+
+1. Dar preferencia al contenido del archivo PMC sobre los archivos PDF, ya que son dos representaciones diferentes del mismo artículo (es decir, la información contienen es casi lo mismo) y el archivo PMC es "más limpio" para analizar.
+2. En caso de no tener un archivo PMC, analizar los archivos PDF.
+3. En caso de no tener rutas de archivos PMC o PDF, guardar los *Fields* `body`, `reference` y `figures` como un *String* vacío.
+
+
+Nótese que estas consideraciones pueden cambiar en iteraciones futuras.
+
+
+## Clase `MetadataArticle`
+
+Define la estructura `metadata.csv` para analizar el contenido de sus columnas.
+En el proceso de construcción de índices invertidos de esta iteración, los campos seleccionados para indexar son aquellos que aparecen resaltados:
+- `cord_uid`: asigna un identificador para cada artículo contenido en los datos proporcionados. Tipo: `str`.
+- sha: hash de cada documento (si lo hay) asociado a cada artículo. Tipo: `List[str]`.
+- source_x: fuentes de donde el conjunto de datos recibió el documento actual. Tipo: `List[str]`.
+- `title`: título del artículo. Tipo: `str`.
+- doi: DOI del artículo, Identificador de Objeto Digital. Tipo: `str`.
+- pmcid: identificador del artículo asignado en PubMed Central. Tipo: `str`.
+- pubmed_id: identificador del artículo asignado en PubMed. Tipo: `str`.
+- license: licencia asociada al artículo actual. Tipo: `str`.
+- `abstract`: resumen del artículo. Tipo: `str`.
+- journal: nombre de la editorial en la que se publicó el artículo actual. Escriba: `str`.
+- mag_id: actualmente obsoleto, solía ser el identificador de Microsoft Academic Graph. Tipo: `int`.
+- who_convidence_id: identificador asignado por la OMS. Tipo: `str`.
+- arxiv_id: identificador asignado por arXiv, servicio de distribución gratuita del artículo. Tipo: `str`.
+- `pdf_json_files`: contiene rutas a los documentos PDF en formato JSON. Tipo: `List[str]`.
+- `pmc_json_files`: contiene rutas a los documentos de PMC, PubMed Central, para XML en formato JSON. Tipo: `List[str]`.
+- url: contiene todas las URL asociadas con el documento actual. Tipo: `List[str]`.
+- s2_id: contiene el ID de Semantic Scholar para el artículo. Tipo: `str`.
+
+## Clase `Artículo`
+
+Una vez que se han analizado los metadatos, el siguiente paso es procesar los archivos JSON de los artículos que contienen alguno disponible.
+
+Además de los campos seleccionados del archivo de metadatos, se han seleccionado los siguientes campos de los archivos JSON:
+
+- body_text: Campo de tipo `List[str]` compuesto por las diferentes partes del texto (campo `text[str]`), así como la sección (`section[str]`) a la que pertenecen.
+- bib_entries: *Parseado* como un objeto `Map<String, Reference>` cuyas claves se obtienen de los identificadores de referencias (`str`) y *mappean* un objeto `Reference` construido con el título de cada referencia.
+- ref_entries: similar a *bib_entries* pero en este caso las referencias son a elementos (figuras y tablas) del propio artículo.
+
 
