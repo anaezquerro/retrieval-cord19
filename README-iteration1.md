@@ -1,11 +1,7 @@
+**Disclaimer: Spanish version of the following sections can be found right after the end of the English README version.**
+
 # GCED-Information Retrieval Assignment- Iteration 1
 
-**Table of Contents**
-
-- [English](#English)
-- [Español](#Español)
-
-##English
 *Documentation of the first iteration Java code of GCED-Information Retrieval assignment (18/03/2022).*
 
 This Markdown contains all the details about Java classes and methods implemented to tackle Iteration-1 objectives:
@@ -156,7 +152,9 @@ and map to a `Reference` object constructed from each corresponding reference ti
 
 ***
 
-##Español
+# GCED-Práctica de recuperación de información- Iteración 1
+
+
 *Documentación de la primera iteración del código Java de la tarea GCED-Information Retrieval (18/03/2022).*
 
 Este Markdown contiene todos los detalles sobre las clases y los métodos de Java implementados para abordar los objetivos de la iteración 1:
@@ -202,7 +200,7 @@ Lee el archivo JSON y procesa su contenido. Como los archivos PMC y PDF tienen l
   - `articleContent (String[])`: Como vemos en el código, la variable devuelta `articleContent`
     está destinado a tener tres elementos `string`: el texto del artículo (es decir, el campo *body_text* del campo JSON), los títulos de referencias concatenados (es decir, *bib_entries.title*) y las notas concatenadas de figuras y tablas en el artículo (es decir, *ref_entries*).
 
-### método `readArticles`
+### Método `readArticles`
 
 Usando el método `readArticle`, lee múltiples archivos JSON con una lista de rutas proporcionadas y concatena su contenido por campo (de interés).
 
@@ -221,7 +219,7 @@ El [repositorio oficial de GitHub de TREC-COVID Challenge] (https://github.com/a
 
 Sin embargo, se menciona que tener múltiples rutas de archivos PDF no significa que cada archivo PDF sea un artículo, es solo un representación diferente del mismo artículo. Esa es la razón por la que consideramos conveniente condensar toda la información de los PDF (del mismo artículo) en los mismos tres campos (nótese que estos campos se pasarán como un *Field* del *Document* de Lucene).
 
-### método `readMetadata`
+### Método `readMetadata`
 
 Usando la clase `ArticleMetadata` como esquema CSV, lee `metadata.csv` y devuelve cada fila como una lista de elementos `ArticleMetadata`.
 
@@ -267,7 +265,7 @@ En el proceso de construcción de índices invertidos de esta iteración, los ca
 - url: contiene todas las URL asociadas con el documento actual. Tipo: `List[str]`.
 - s2_id: contiene el ID de Semantic Scholar para el artículo. Tipo: `str`.
 
-## Clase `Artículo`
+## Clase `Article`
 
 Una vez que se han analizado los metadatos, el siguiente paso es procesar los archivos JSON de los artículos que contienen alguno disponible.
 
