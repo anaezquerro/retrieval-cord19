@@ -74,20 +74,20 @@ public class ReadIndexMetadata {
     }
 
     private static final String[] readArticles(List<Path> articlesPath) {
-        StringBuilder[] articleContentBuilder = new StringBuilder[3];
+        StringBuilder[] articlesContentBuilder = new StringBuilder[3];
         for (int i = 0; i < 3; i++) {
-            articleContentBuilder[i] = new StringBuilder();
+            articlesContentBuilder[i] = new StringBuilder();
         }
         for (Path articlePath : articlesPath) {
-            String[] articleContent = readArticle(articlePath);
+            String[] articlesContent = readArticle(articlePath);
             for (int i = 0; i<3; i++) {
-                articleContentBuilder[i].append(articleContent[i]);
-                articleContentBuilder[i].append('\n');
+                articlesContentBuilder[i].append(articlesContent[i]);
+                articlesContentBuilder[i].append('\n');
             }
         }
 
-        String[] articleContent = Arrays.stream(articleContentBuilder).map(builder -> builder.toString()).toArray(String[]::new);
-        return articleContent;
+        String[] articlesContent = Arrays.stream(articlesContentBuilder).map(builder -> builder.toString()).toArray(String[]::new);
+        return articlesContent;
     }
 
 
@@ -142,15 +142,12 @@ public class ReadIndexMetadata {
             // Read PMC and PDF paths (check README-iteration1 to understand this block of code)
             List<Path> pdfPaths = article.pdfFiles().stream().map(pdfPath -> collectionPath.resolve(pdfPath)).collect(Collectors.toList());
             String[] articleContent;
-            if (article.pmcFile().length() != 0 && article.pdfFiles().size() <= 1) {
+            if (article.pmcFile().length() != 0) {
                 articleContent = readArticle(collectionPath.resolve(article.pmcFile()));
-            } else if (article.pmcFile().length() != 0 && article.pdfFiles().size() >= 1) {
+            } else if (article.pdfFiles().size() >= 1) {
                 List<Path> pmcpdfPaths = new ArrayList<>();
                 pmcpdfPaths.addAll(pdfPaths);
-                pmcpdfPaths.set(0, collectionPath.resolve(article.pmcFile()));
                 articleContent = readArticles(pmcpdfPaths);
-            } else if (article.pmcFile().length() == 0 && article.pdfFiles().size() >= 1){
-                articleContent = readArticles(pdfPaths);
             } else {
                 articleContent = new String[] {"", "", ""};
             }
