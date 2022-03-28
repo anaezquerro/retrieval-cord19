@@ -6,7 +6,6 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record Article(List<Content> body_text, Map<String, Reference> bib_entries, Map<String, Figure> ref_entries) {
-
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static record Content(String text, String section) {}
 

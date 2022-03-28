@@ -17,3 +17,6 @@ target/
 # Collection
 cord-19_2020-07-16.tar.gz
 cord-19_2020-07-16*
+
+Index-EnglishAnalyzer/
+index-StandardAnalyzer/

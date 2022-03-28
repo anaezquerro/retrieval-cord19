@@ -16,6 +16,7 @@ import com.fasterxml.jackson.dataformat.csv.CsvMapper;
 import com.fasterxml.jackson.dataformat.csv.CsvSchema;
 
 import es.udc.fi.irdatos.c2122.util.ObjectReaderUtils;
+import org.apache.lucene.analysis.en.EnglishAnalyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.*;
 import org.apache.lucene.index.*;
@@ -112,7 +113,7 @@ public class ReadIndexMetadata {
         Path collectionPath = DEFAULT_COLLECTION_PATH;
 
         // Creation of IndexWriter
-        IndexWriterConfig config = new IndexWriterConfig(new StandardAnalyzer());
+        IndexWriterConfig config = new IndexWriterConfig(new EnglishAnalyzer());
         IndexWriter writer = null;
         try {
             writer = new IndexWriter(FSDirectory.open(Paths.get(indexFolder)), config);
@@ -187,7 +188,7 @@ public class ReadIndexMetadata {
     public static void main(String[] args) {
         String indexFolder;
         if (args.length == 0) {
-            indexFolder = "Index-StandardAnalyzer";
+            indexFolder = "Index-EnglishAnalyzer";
         } else {
             indexFolder = args[0];
         }

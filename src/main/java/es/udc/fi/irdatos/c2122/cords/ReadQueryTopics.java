@@ -22,10 +22,9 @@ import org.apache.lucene.search.BooleanClause.Occur;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
+import java.util.*;
+
+import static java.util.Map.entry;
 
 public class ReadQueryTopics {
     private static final Path DEFAULT_COLLECTION_PATH = Paths.get("cord-19_2020-07-16",
@@ -100,7 +99,8 @@ public class ReadQueryTopics {
 
         // 2. Make the query for each topic
         Query query;
-        QueryParser parser = new MultiFieldQueryParser(new String[] {"title", "abstract", "body"}, new StandardAnalyzer());
+        Map<String, Float> fields = Map.of("title", (float)0.4, "abstract", (float)0.35, "body", (float)0.25);
+        QueryParser parser = new MultiFieldQueryParser(fields.keySet().toArray(new String[0]), new StandardAnalyzer(), fields);
         for (Topics.Topic topic : topics) {
             try {
                 query = parser.parse(topic.query());
@@ -170,6 +170,9 @@ public class ReadQueryTopics {
                 }
             }
             APk = APk / Math.min(Integer.parseInt(args[0]), TPtotal);
+            if (Double.isNaN(APk)) {
+                APk = 0;
+            }
             mAPk = mAPk + APk;
             System.out.println("AP@k metric in topic " + (topic_index+1) + ": " + APk);
         }
