@@ -148,7 +148,7 @@ public class ReadQueryTopics {
         for (int topic_index = 0; topic_index < 50; topic_index ++) {
             TopDocs topicTopDocs = topicsTopDocs[topic_index];
             float APk = 0;
-            int TPtotal = 0;
+            int TPtotal = topicRelevDocs.get(topic_index+1).size();
             int TPseen = 0;
             for (int k = 1; k <= Math.min(Integer.parseInt(args[0]), topicTopDocs.totalHits.value); k++) {
                 String docID;
@@ -166,10 +166,9 @@ public class ReadQueryTopics {
                 if (topicRelevDocs.get(topic_index + 1).contains(docID)) {
                     TPseen = TPseen + 1;
                     APk = APk + (TPseen / k);
-                    TPtotal = TPseen;
                 }
             }
-            APk = APk / Math.min(Integer.parseInt(args[0]), TPtotal);
+            APk = APk / TPtotal;
             if (Double.isNaN(APk)) {
                 APk = 0;
             }
