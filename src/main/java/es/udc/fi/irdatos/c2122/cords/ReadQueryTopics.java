@@ -23,55 +23,79 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.stream.IntStream;
 
 import static java.util.Map.entry;
 
+
+/**
+ * Class for reading and parsing TREC-COVID topics set and relevance judgments and make queries from the query field
+ * of each topic.
+ */
 public class ReadQueryTopics {
-    private static final Path DEFAULT_COLLECTION_PATH = Paths.get("cord-19_2020-07-16",
-            "2020-07-16");
+    private static final Path COLLECTION_PATH = Paths.get("2020-07-16");
+    private static Path INDEX_PATH = Paths.get("Index-StandardAnalyzer");
     private static String TOPICS_FILENAME = "topics_set.xml";
     private static String RELEVANCE_JUDGEMENTS_FILENAME = "relevance_judgements.txt";
-
     private static final ObjectReader TOPICS_READER = XmlMapper.builder().findAndAddModules().build().readerFor(Topics.class);
 
+    /**
+     * Reads and parses topics set using the defined structure in Topics.java file.
+     * @returns A 50-length array with information about each topic, stored with the Topics.Topic structure.
+     */
     private static final Topics.Topic[] readTopicSet() {
-        Path collectionPath = DEFAULT_COLLECTION_PATH;
+        // Define topics path
+        Path collectionPath = COLLECTION_PATH;
         Path topicsPath = collectionPath.resolve(TOPICS_FILENAME);
 
+        // Use Topics and Topics.Topic structure to parse the topic set information
         Topics.Topic[] topics;
         try {
             Topics topicsList = TOPICS_READER.readValue(topicsPath.toFile());
             topics = topicsList.topic();
         } catch (IOException e) {
-            System.out.println("While reading a JSON file an error has occurred: " + e);
+            System.out.println("IOException while reading topics in: " + topicsPath.toString());
             return null;
         }
+
+        // Returns an array consisted of each topic information (number, query, question and narrative)
         return topics;
     }
 
-    private static final HashMap<Integer, List<String>> readRelevanceJudgements() {
-        Path collectionPath = DEFAULT_COLLECTION_PATH;
+    /**
+     * Reads and parses relevance judgements.
+     * @returns Map object where each key is a topic ID with its corresponding list of relevant documents identificers.
+     */
+    private static final Map<Integer, List<String>> readRelevanceJudgements() {
+        // Define relevance judgments path
+        Path collectionPath = COLLECTION_PATH;
         Path relevanceJudgementsPath = collectionPath.resolve(RELEVANCE_JUDGEMENTS_FILENAME);
 
+        // Read an parse relevance judgments file
         CsvSchema schema = CsvSchema.builder().setColumnSeparator(' ').addColumn("topicID").addColumn("rank").addColumn("docID").addColumn("score").build();
         ObjectReader reader = new CsvMapper().readerFor(RelevanceJudgements.class).with(schema);
 
+        // Creating a list with each relevance judgments using the defined structure in RelevanceJudgements.java
+        // (topicID, docID, score)
         List<RelevanceJudgements> docsRelevance;
         try {
             docsRelevance = ObjectReaderUtils.readAllValues(relevanceJudgementsPath, reader);
         } catch (IOException e) {
-            System.out.println("IOException while reading metadata in " + relevanceJudgementsPath.toString());
+            System.out.println("IOException while reading relevance judgments in " + relevanceJudgementsPath.toString());
             e.printStackTrace();
             return null;
         }
 
-        HashMap<Integer, List<String>> topicRelevDocs = new HashMap<>();
+        // Create the Map object where each topic ID is stored with its corresponding list of relevant documents identifiers
+        Map<Integer, List<String>> topicRelevDocs = new HashMap<>();
         for (int i=1; i < 51; i++) {
-            List<String> emptyList = new ArrayList<>();
-            topicRelevDocs.put(i, emptyList) ;
+            List<String> emptyList = new ArrayList<>();    // firstly create an empty list
+            topicRelevDocs.put(i, emptyList);                    // add to the map object the index i with the empty list
         }
 
+        // Read the relevance judgments list and add in the list of each topicID the corresponding document identifier
         for (RelevanceJudgements doc : docsRelevance) {
+            // We do not care if the score is 1 or 2 to assess its relevance
             if (doc.score() != 0) {
                 topicRelevDocs.get(doc.topicID()).add(doc.docID());
             }
@@ -79,102 +103,80 @@ public class ReadQueryTopics {
         return topicRelevDocs;
     }
 
-    private static final TopDocs[] searchTopics(Topics.Topic[] topics, int n) {
-        // 1. Open Index Directory and create the IndexReader
-        Directory directory = null;
-        IndexReader reader = null;
-        try {
-            directory = FSDirectory.open(Paths.get("Index-StandardAnalyzer"));
-            reader = DirectoryReader.open(directory);
-        } catch (CorruptIndexException e1) {
-            System.out.println("Graceful message: exception " + e1);
-            e1.printStackTrace();
-        } catch (IOException e1) {
-            System.out.println("Graceful message: exception " + e1);
-            e1.printStackTrace();;
-        }
-        TopDocs[] topicsTopDocs = new TopDocs[topics.length];
-        IndexSearcher searcher = new IndexSearcher(reader);
+    /**
+     * Computes the average precision metric with the top documents returned by a query and the real relevant documents.
+     * @param reader IndexReader to obtain the fields of the documents returned.
+     * @param predictedRelevant Top documents returned by the query.
+     * @param realRelevant Real relevant documents obtained from the relevance judgements file.
+     * @param k Threshold for calculating the precision in each document.
+     * @returns Average precision at k.
+     */
+    public static final Float averagePrecision(IndexReader reader, TopDocs predictedRelevant, List<String> realRelevant, int k) {
+        float APk = 0;
+        int TPseen = 0;
 
+        // Loop for each document returned by the query
+        for (int i = 0; i < Math.min(predictedRelevant.totalHits.value, k); i++) {
 
-        // 2. Make the query for each topic
-        Query query;
-        Map<String, Float> fields = Map.of("title", (float)0.4, "abstract", (float)0.35, "body", (float)0.25);
-        QueryParser parser = new MultiFieldQueryParser(fields.keySet().toArray(new String[0]), new StandardAnalyzer(), fields);
-        for (Topics.Topic topic : topics) {
+            // Read the docID of the document
+            String docID;
             try {
-                query = parser.parse(topic.query());
-            } catch (ParseException e) {
-                e.printStackTrace();
+                docID = reader.document(predictedRelevant.scoreDocs[i].doc).get("docID");
+            } catch (CorruptIndexException e) {
+                System.out.println("CorruptIndexException while reading a docID");
                 return null;
-            }
-
-            // Obtain top n documents
-            TopDocs topDocs;
-            try {
-                topDocs = searcher.search(query, n);
             } catch (IOException e) {
-                System.out.println("IOException while searching documents" + e);
+                System.out.println("IOException while reading a docID " + e);
                 e.printStackTrace();
                 return null;
             }
-            System.out.println(query.toString());
-            System.out.println(topDocs.totalHits + " results for the query of topic: " + topic.query());
-            topicsTopDocs[topic.number()-1] = topDocs;
+
+            // If the docID is in the real relevant documents list
+            if (realRelevant.contains(docID)) {
+                TPseen = TPseen + 1;          // add +1 to the TP seen
+                APk = APk + (TPseen / (i+1));     // add TPseen/i to the APk summary
+            }
         }
 
-        return topicsTopDocs;
+        // Once the loop is finished, normalize the APk summary with the min( number of real relevant document, k)
+        APk = APk / Math.min(realRelevant.size(), k);
+
+        return APk;
     }
 
-
     public static void main(String[] args) {
+        // Read the topics set
         Topics.Topic[] topics = readTopicSet();
-        HashMap<Integer, List<String>> topicRelevDocs = readRelevanceJudgements();
-        TopDocs[] topicsTopDocs = searchTopics(topics, Integer.parseInt(args[0]));
 
+        // Read the relevance judgements
+        Map<Integer, List<String>> topicRelevDocs = readRelevanceJudgements();
+
+        // Make the queries for each topic query
+        QueryTopics queryTopics = new QueryTopics(INDEX_PATH, topics, Integer.parseInt(args[0]));
+        Map<Integer, TopDocs> topicsTopDocs = queryTopics.query(0);
+
+        // Create the IndexReader instance to read the indexed documents ID
         IndexReader reader = null;
         try {
-            reader = DirectoryReader.open(FSDirectory.open(Paths.get("Index-StandardAnalyzer")));
+            reader = DirectoryReader.open(FSDirectory.open(INDEX_PATH));
         } catch (CorruptIndexException e1) {
-            System.out.println("Graceful message: exception " + e1);
-            e1.printStackTrace();
+            System.out.println("CorruptIndexException while reading the index " + INDEX_PATH.toString());
         } catch (IOException e1) {
-            System.out.println("Graceful message: exception " + e1);
-            e1.printStackTrace();;
+            System.out.println("IOException while reding the index " + INDEX_PATH.toString());
         }
 
         // Compute MAP@k metric
         float mAPk = 0;
-        for (int topic_index = 0; topic_index < 50; topic_index ++) {
-            TopDocs topicTopDocs = topicsTopDocs[topic_index];
-            float APk = 0;
-            int TPtotal = topicRelevDocs.get(topic_index+1).size();
-            int TPseen = 0;
-            for (int k = 1; k <= Math.min(Integer.parseInt(args[0]), topicTopDocs.totalHits.value); k++) {
-                String docID;
-                try {
-                    docID = reader.document(topicTopDocs.scoreDocs[k-1].doc).get("docID");
-                } catch (CorruptIndexException e) {
-                    System.out.println("Graceful message: exception " + e);
-                    e.printStackTrace();
-                    return;
-                } catch (IOException e) {
-                    System.out.println("Graceful message: exception " + e);
-                    e.printStackTrace();
-                    return;
-                }
-                if (topicRelevDocs.get(topic_index + 1).contains(docID)) {
-                    TPseen = TPseen + 1;
-                    APk = APk + (TPseen / k);
-                }
-            }
-            APk = APk / TPtotal;
-            if (Double.isNaN(APk)) {
-                APk = 0;
-            }
+        int k = Integer.parseInt(args[0]);
+
+        // Loop for each topic
+        for (Map.Entry<Integer, TopDocs> topic : topicsTopDocs.entrySet()) {
+            float APk = averagePrecision(reader, topic.getValue(), topicRelevDocs.get(topic.getKey()), k);
+            System.out.println("AveragePrecision at k=" + k + " in topic " + topic.getKey() + ": " + APk);
             mAPk = mAPk + APk;
-            System.out.println("AP@k metric in topic " + (topic_index+1) + ": " + APk);
         }
+
+        // Normalize the mean average precision
         mAPk = mAPk / topics.length;
         System.out.println("Average mAP@k metric: " + mAPk);
 
