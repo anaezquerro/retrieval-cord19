@@ -8,20 +8,21 @@ import es.udc.fi.irdatos.c2122.util.ObjectReaderUtils;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
-public class ReadMetadata {
-    private static Path metadataPath;
-    private static ObjectReader articleReader;
+/**
+ * Implements multiple methods to read the Complete Dataset TREC-COVID Challenge.
+ */
+public class CollectionReader {
+    private static final ObjectReader articleReader = JsonMapper.builder().findAndAddModules().build().readerFor(Article.class);
 
-    public ReadMetadata(Path metadataPath, ObjectReader articleReader) {
-        this.metadataPath = metadataPath;
-        this.articleReader = articleReader;
-    }
-
+    /**
+     * Parses the content of the JSON files with the given structure in the class Article.java
+     * @param articlePath Path of the JSON file.
+     * @returns String array with the body text of the JSON file, references notes of the article and figure/table notes.
+     */
     public static final String[] readArticle(Path articlePath) {
         Article article;
         try {
@@ -65,6 +66,12 @@ public class ReadMetadata {
         return articleContent;
     }
 
+    /**
+     * Using the readArticle method, parses a set of articles and returns their joined content.
+     * @param articlesPath Array of paths to the set of articles which need to be parsed.
+     * @returns String array where each element is the concatenation of one specific field of all articles specified in
+     * articlesPath.
+     */
     public static final String[] readArticles(List<Path> articlesPath) {
         StringBuilder[] articlesContentBuilder = new StringBuilder[3];
         for (int i = 0; i < 3; i++) {
@@ -82,11 +89,16 @@ public class ReadMetadata {
         return articlesContent;
     }
 
-    public static final List<MetadataArticle> readMetadata() {
+    /**
+     * Parses the metadata.csv file with the given structure in Metadata.java
+     * @param metadataPath Path to the metadata.csv file.
+     * @returns List of Metadata objects representing each row of the CSV.
+     */
+    public static final List<Metadata> readMetadata(Path metadataPath) {
         CsvSchema schema = CsvSchema.emptySchema().withHeader().withArrayElementSeparator("; ");
-        ObjectReader reader = new CsvMapper().readerFor(MetadataArticle.class).with(schema);
+        ObjectReader reader = new CsvMapper().readerFor(Metadata.class).with(schema);
 
-        List<MetadataArticle> metadata;
+        List<Metadata> metadata;
         try {
             metadata = ObjectReaderUtils.readAllValues(metadataPath, reader);
         } catch (IOException e) {

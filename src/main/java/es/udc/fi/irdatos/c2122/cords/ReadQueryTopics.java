@@ -5,31 +5,21 @@ import com.fasterxml.jackson.dataformat.csv.CsvMapper;
 import com.fasterxml.jackson.dataformat.csv.CsvSchema;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import es.udc.fi.irdatos.c2122.util.ObjectReaderUtils;
-import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
-import org.apache.lucene.index.Term;
-import org.apache.lucene.queryparser.classic.MultiFieldQueryParser;
-import org.apache.lucene.queryparser.classic.ParseException;
-import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.*;
-import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
-import org.apache.lucene.search.BooleanClause.Occur;
 
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.stream.IntStream;
-
-import static java.util.Map.entry;
 
 
 /**
- * Class for reading and parsing TREC-COVID topics set and relevance judgments and make queries from the query field
+ * Class for reading and parsing TREC-COVID topics set and relevance judgments and make queries using the query field
  * of each topic.
  */
 public class ReadQueryTopics {
@@ -153,7 +143,7 @@ public class ReadQueryTopics {
 
         // Make the queries for each topic query
         QueryTopics queryTopics = new QueryTopics(INDEX_PATH, topics, Integer.parseInt(args[0]));
-        Map<Integer, TopDocs> topicsTopDocs = queryTopics.query(0);
+        Map<Integer, TopDocs> topicsTopDocs = queryTopics.query(1);
 
         // Create the IndexReader instance to read the indexed documents ID
         IndexReader reader = null;
@@ -162,7 +152,7 @@ public class ReadQueryTopics {
         } catch (CorruptIndexException e1) {
             System.out.println("CorruptIndexException while reading the index " + INDEX_PATH.toString());
         } catch (IOException e1) {
-            System.out.println("IOException while reding the index " + INDEX_PATH.toString());
+            System.out.println("IOException while reading the index " + INDEX_PATH.toString());
         }
 
         // Compute MAP@k metric
@@ -178,7 +168,7 @@ public class ReadQueryTopics {
 
         // Normalize the mean average precision
         mAPk = mAPk / topics.length;
-        System.out.println("Average mAP@k metric: " + mAPk);
+        System.out.println("Average mAP@" + k + " metric: " + mAPk);
 
     }
 }

@@ -1,13 +1,12 @@
 package es.udc.fi.irdatos.c2122.cords;
 
 import java.util.List;
-import java.time.LocalDate;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record MetadataArticle(
+public record Metadata(
     @JsonProperty("cord_uid") String cordUid,
     String title,
     List<String> authors,

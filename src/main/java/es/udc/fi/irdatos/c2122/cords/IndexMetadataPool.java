@@ -1,18 +1,12 @@
 package es.udc.fi.irdatos.c2122.cords;
 
-import com.fasterxml.jackson.databind.ObjectReader;
-import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.*;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.IndexWriter;
-import org.apache.lucene.index.IndexWriterConfig;
-import org.apache.lucene.store.FSDirectory;
-import org.apache.lucene.store.LockObtainFailedException;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -20,25 +14,40 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import static es.udc.fi.irdatos.c2122.cords.ReadMetadata.readArticle;
-import static es.udc.fi.irdatos.c2122.cords.ReadMetadata.readArticles;
+import static es.udc.fi.irdatos.c2122.cords.CollectionReader.readArticle;
+import static es.udc.fi.irdatos.c2122.cords.CollectionReader.readArticles;
 
-
+/**
+ * Implements the indexing parallel process of the JSOON files content once the metadata.csv has been parsed
+ */
 public class IndexMetadataPool {
     public static class WorkerThread implements Runnable {
         private IndexWriter iwriter;
-        private List<MetadataArticle> metadata;
+        private List<Metadata> metadata;
         private Path collectionPath;
+        private int numWorker;
 
-        public WorkerThread(IndexWriter iwriter, List<MetadataArticle> metadata, Path collectionPath) {
+        /**
+         * Subclass of a Thread Proccess of the indexing Pool.
+         * @param iwriter Index writer (thread-safe) to index the collection documents.
+         * @param metadata List of Metadata objects representing each row of the metadata.csv file.
+         * @param collectionPath Path to collection where the articles JSON files are stored.
+         */
+        public WorkerThread(IndexWriter iwriter, List<Metadata> metadata, Path collectionPath, int numWorker) {
             this.iwriter = iwriter;
             this.metadata = metadata;
             this.collectionPath = collectionPath;
+            this.numWorker = numWorker;
         }
 
+        /** 
+        * When the thread starts its tasks, it is in charge of indexing the metadata fields (docID, title, abstract) 
+         * and the article content referenced in the PMC and PDF paths.
+         */
         @Override
         public void run() {
-            for (MetadataArticle article : metadata) {
+            for (Metadata article : metadata) {
+                // Create the document and add the docID, title and abstract of the metadata row as Lucene Fields
                 Document doc = new Document();
                 doc.add(new StoredField("docID", article.cordUid()));
                 doc.add(new TextField("title", article.title(), Field.Store.YES));
@@ -59,11 +68,12 @@ public class IndexMetadataPool {
 
                 // Save body, references and figure notes as new fields in the document
                 FieldType bodyFieldType = new FieldType();
-                bodyFieldType.setIndexOptions(IndexOptions.DOCS_AND_FREQS);
+                bodyFieldType.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS);
                 doc.add(new Field("body", articleContent[0], bodyFieldType));
                 doc.add(new TextField("references", articleContent[1], Field.Store.YES));
                 doc.add(new TextField("figures", articleContent[2], Field.Store.YES));
 
+                // Write the document in the index
                 try {
                     iwriter.addDocument(doc);
                 } catch (CorruptIndexException e) {
@@ -74,56 +84,45 @@ public class IndexMetadataPool {
                     e.printStackTrace();
                 }
             }
-            System.out.println("One thread has finished");
+            System.out.println("Worker " + numWorker + " : Finished");
         }
     }
 
 
-    public static void indexMetadataPool(List<MetadataArticle> metadata, Path indexPath, Path collectionPath) {
+    /**
+     * Starts the executing pool for collection indexing. By default, the number of workers will be the number of
+     * cores in the machine.
+     * @param writer IndexWriter that will be used by all workers to index documents.
+     * @param metadata List of Metadata.java instances representing each row of the metadata.csv file.
+     * @param collectionPath Path where is stored the collection files.
+     */
+    public static void indexMetadataPool(IndexWriter writer, List<Metadata> metadata, Path collectionPath) {
         // Create the ExecutorService
         final int numCores = Runtime.getRuntime().availableProcessors();
         System.out.println("Indexing metadata articles with " + numCores + " cores");
         ExecutorService executor = Executors.newFixedThreadPool(numCores);
 
-        // Create the IndexWriter
-        IndexWriterConfig config = new IndexWriterConfig(new StandardAnalyzer());
-        IndexWriter writer = null;
-        try {
-            writer = new IndexWriter(FSDirectory.open(indexPath), config);
-        } catch (CorruptIndexException e) {
-            System.out.println("CorruptIndexException while creating IndexWriter at " + indexPath.toString());
-            e.printStackTrace();
-        } catch (LockObtainFailedException e) {
-            System.out.println("LockObtainFailedException while creating IndexWriter at " + indexPath.toString());
-            e.printStackTrace();
-        } catch (IOException e) {
-            System.out.println("IOException while creating IndexWriter at " + indexPath.toString());
-            e.printStackTrace();
-        }
-
-        // Launch a slice of articles to index to each worker
+        // Give a slice of articles to each worker
         System.out.println("A total of " + metadata.size() + " articles will be parsed and indexed");
         int articlesPerThread = (int) Math.ceil((double)metadata.size()/(double)numCores);
         System.out.println("Each thread will parse and index " + articlesPerThread + " articles");
         for (int i=0; i < numCores; i++) {
             int start = i*articlesPerThread;
             int end = Math.min(metadata.size(), (i+1)*articlesPerThread);
-            List<MetadataArticle> metadataSlice = metadata.subList(start, end);
+            List<Metadata> metadataSlice = metadata.subList(start, end);
             System.out.println("Thread " + i + " is indexing articles from " + start + " to " + end);
-            Runnable worker = new WorkerThread(writer, metadataSlice, collectionPath);
+            Runnable worker = new WorkerThread(writer, metadataSlice, collectionPath, i);
             executor.execute(worker);
         }
 
+        // End the executor
         executor.shutdown();
-        System.out.println("No more indexing tasks will be launched");
         try {
-            executor.awaitTermination(5, TimeUnit.MINUTES);
+            executor.awaitTermination(10, TimeUnit.MINUTES);
         } catch (final InterruptedException e) {
             e.printStackTrace();
             System.exit(-2);
         }
-        System.out.println("Indexing processes have finished");
-
 
         // Close the writer
         try {
