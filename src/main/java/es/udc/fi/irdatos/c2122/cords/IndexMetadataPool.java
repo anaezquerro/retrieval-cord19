@@ -18,7 +18,7 @@ import static es.udc.fi.irdatos.c2122.cords.CollectionReader.readArticle;
 import static es.udc.fi.irdatos.c2122.cords.CollectionReader.readArticles;
 
 /**
- * Implements the indexing parallel process of the JSOON files content once the metadata.csv has been parsed
+ * Implements the parallel indexing process of the JSON files content once the metadata.csv has been parsed
  */
 public class IndexMetadataPool {
     public static class WorkerThread implements Runnable {

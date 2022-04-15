@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Implements multiple methods to read the Complete Dataset TREC-COVID Challenge.
+ * Implements reading and parsing methods for TREC-COVID Collection.
  */
 public class CollectionReader {
     private static final ObjectReader articleReader = JsonMapper.builder().findAndAddModules().build().readerFor(Article.class);

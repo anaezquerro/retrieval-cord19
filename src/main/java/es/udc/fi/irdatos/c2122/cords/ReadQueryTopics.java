@@ -5,6 +5,7 @@ import com.fasterxml.jackson.dataformat.csv.CsvMapper;
 import com.fasterxml.jackson.dataformat.csv.CsvSchema;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import es.udc.fi.irdatos.c2122.util.ObjectReaderUtils;
+import org.apache.commons.io.FileUtils;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
@@ -12,6 +13,8 @@ import org.apache.lucene.search.*;
 import org.apache.lucene.store.FSDirectory;
 
 
+import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -28,6 +31,7 @@ public class ReadQueryTopics {
     private static String TOPICS_FILENAME = "topics_set.xml";
     private static String RELEVANCE_JUDGEMENTS_FILENAME = "relevance_judgements.txt";
     private static final ObjectReader TOPICS_READER = XmlMapper.builder().findAndAddModules().build().readerFor(Topics.class);
+    private static String RESULTS_FILENAME = "round5-submission.txt";
 
     /**
      * Reads and parses topics set using the defined structure in Topics.java file.
@@ -93,6 +97,9 @@ public class ReadQueryTopics {
         return topicRelevDocs;
     }
 
+
+
+
     /**
      * Computes the average precision metric with the top documents returned by a query and the real relevant documents.
      * @param reader IndexReader to obtain the fields of the documents returned.
@@ -134,7 +141,120 @@ public class ReadQueryTopics {
         return APk;
     }
 
+    /**
+     * Computes the mean average precision metric with the top documents returned by all topic queries and the real
+     * relevant documents of each topic.
+     * @param reader IndexReader to obtain the fields of the documents returned.
+     * @param predictedRelevants Map object with the predicted relevant documents of each topic.
+     * @param realRelevants Map object with the real relevant documents of each topic obtained form the relevance_judgments.txt file.
+     * @param k Threshold for calculating the precision in each document.
+     * @returns Mean average precision at k over all topics.
+     */
+    public static Float meanAveragePrecision(IndexReader reader, Map<Integer, TopDocs> predictedRelevants, Map<Integer, List<String>> realRelevants, int k) {
+        float mAPk = 0;
+
+        // Loop for each topic
+        for (Map.Entry<Integer, TopDocs> topic : predictedRelevants.entrySet()) {
+            float APk = averagePrecision(reader, topic.getValue(), realRelevants.get(topic.getKey()), k);
+            System.out.println("AveragePrecision at k=" + k + " in topic " + topic.getKey() + ": " + APk);
+            mAPk = mAPk + APk;
+        }
+
+        // Normalize the mean average precision
+        mAPk = mAPk / predictedRelevants.size();
+        System.out.println("mAP@" + k + " metric: " + mAPk);
+
+        return mAPk;
+    }
+
+    /**
+     * Generated the txt file with the submission format specified in the TREC-COVID Challenge once the top documents
+     * of each topic have been obtained.
+     * @param reader IndexReader to access to the document ID.
+     * @param topicsTopDocs Map object with the top documents of each topic.
+     * @param filename File name which results text file will be stored with.
+     * @param cut Number of top documents to submit in the results list.
+     */
+    public static final void generateResults(IndexReader reader, Map<Integer, TopDocs> topicsTopDocs, String filename, int cut) {
+        // Create the new file (delete previously if it already exists)
+        File file;
+        try {
+            file = new File(filename);
+            if (file.exists()) {
+                file.delete();
+            }
+        } catch (Exception e) {
+            System.out.println("IOException while removing " + filename + " folder");
+        }
+
+        FileWriter writer = null;
+        try {
+            writer = new FileWriter(filename);
+        } catch (Exception e) {
+            System.out.println("Exception occurred while creating the new file: " + filename);
+            e.printStackTrace();
+        }
+
+        // loop for each topic to submit the results
+        String runtag = "ir-ppaa";
+        for (int topic : topicsTopDocs.keySet()) {
+            TopDocs topDocs = topicsTopDocs.get(topic);    // obtain the top documents
+
+            // add each document
+            for (int i=0; i < cut; i++) {
+                String docID = null;
+                try {
+                    docID = reader.document(topDocs.scoreDocs[i].doc).get("docID");
+                } catch (IOException e) {
+                    System.out.println("IOException while saving the document " + i + " of the topic " + topic);
+                    e.printStackTrace();
+                }
+
+                String rank = Integer.toString(i);
+                String score = Float.toString(topDocs.scoreDocs[i].score);
+
+                try {
+                    writer.write(String.join(" ", Integer.toString(topic), "Q0", docID, rank, score, runtag, "\n"));
+                } catch (IOException e) {
+                    System.out.println("IOException while saving the results of the document " + i + " of the topic " + topic);
+                    e.printStackTrace();
+                }
+            }
+        }
+
+        // Close the writer
+        try {
+            writer.close();
+        } catch (IOException e) {
+            System.out.println("IOException while closing the txt writer");
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Calls the whole process of parsing topics set (XML file) and relevance judgements (TXT file), searching in the
+     * inverted index created in the first iteration, creating the results list and evaluating the queries performance.
+     * @param args At least two arguments are needed to be provided. The first argument is the cut-off of the documents
+     *             to submit in the results list. The second argument is the k value to compute the MAP@k metric.
+     * Optionally, the typeQuery ID can be passed. If it is 0, the simpleQuery (see README-Iteration2) will be computed.
+     *             If it is 1, the phraseQuery will be computed instead.
+     */
     public static void main(String[] args) {
+        if (args.length < 2) {
+            System.out.println("At least the cut-off of the documents results and k value of the MAP@k metric must be provided");
+            return;
+        }
+        int n = Integer.parseInt(args[0]);
+        int k = Integer.parseInt(args[1]);
+        int typeQuery = 0;
+        if (args.length > 2) {
+            typeQuery = Integer.parseInt(args[2]);
+            if (typeQuery > 2) {
+                System.out.println("typeQuery parameter must be 0 [simpleQuery] or 1 [phraseQuery]");
+                return;
+            }
+        }
+
         // Read the topics set
         Topics.Topic[] topics = readTopicSet();
 
@@ -142,8 +262,8 @@ public class ReadQueryTopics {
         Map<Integer, List<String>> topicRelevDocs = readRelevanceJudgements();
 
         // Make the queries for each topic query
-        QueryTopics queryTopics = new QueryTopics(INDEX_PATH, topics, Integer.parseInt(args[0]));
-        Map<Integer, TopDocs> topicsTopDocs = queryTopics.query(1);
+        QueryTopics queryTopics = new QueryTopics(INDEX_PATH, topics, n);
+        Map<Integer, TopDocs> topicsTopDocs = queryTopics.query(typeQuery);
 
         // Create the IndexReader instance to read the indexed documents ID
         IndexReader reader = null;
@@ -155,22 +275,14 @@ public class ReadQueryTopics {
             System.out.println("IOException while reading the index " + INDEX_PATH.toString());
         }
 
+        // Generate the results
+        generateResults(reader, topicsTopDocs, RESULTS_FILENAME, n);
+
         // Compute MAP@k metric
-        float mAPk = 0;
-        int k = Integer.parseInt(args[0]);
-
-        // Loop for each topic
-        for (Map.Entry<Integer, TopDocs> topic : topicsTopDocs.entrySet()) {
-            float APk = averagePrecision(reader, topic.getValue(), topicRelevDocs.get(topic.getKey()), k);
-            System.out.println("AveragePrecision at k=" + k + " in topic " + topic.getKey() + ": " + APk);
-            mAPk = mAPk + APk;
-        }
-
-        // Normalize the mean average precision
-        mAPk = mAPk / topics.length;
-        System.out.println("Average mAP@" + k + " metric: " + mAPk);
-
+        float mAPk = meanAveragePrecision(reader, topicsTopDocs, topicRelevDocs, k);
     }
+
+
 }
 
 

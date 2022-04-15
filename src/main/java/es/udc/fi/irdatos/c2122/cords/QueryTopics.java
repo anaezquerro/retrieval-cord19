@@ -165,7 +165,6 @@ public class QueryTopics {
 
             // Finally, add the top documents to the map object
             System.out.println(topDocs.totalHits + " results for the query: " + topic.query() + " [topic=" + topic.number() + "]" );
-            System.out.println(booleanQuery.toString());
             topicsTopDocs.put(topic.number(), topDocs);
         }
 
