@@ -17,6 +17,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import org.apache.commons.math3.linear.ArrayRealVector;
+
 
 /**
  * Implements reading and parsing methods for TREC-COVID Collection.
@@ -122,8 +124,8 @@ public class CollectionReader {
     }
 
 
-    public static final Map<String, List<Double>> readQueryEmbeddings() {
-        Map<String, List<Double>> queryEmbeddings = null;
+    public static final Map<Integer, ArrayRealVector> readQueryEmbeddings() {
+        Map<Integer, ArrayRealVector> queryEmbeddings = null;
         try {
             queryEmbeddings = new ObjectMapper().readValue(
                     DEFAULT_COLLECTION_PATH.resolve(QUERY_EMBEDDINGS_FILENAME).toFile(), Map.class);
