@@ -12,10 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Stream;
 import org.apache.commons.math3.linear.ArrayRealVector;
 
@@ -125,13 +122,19 @@ public class CollectionReader {
 
 
     public static final Map<Integer, ArrayRealVector> readQueryEmbeddings() {
-        Map<Integer, ArrayRealVector> queryEmbeddings = null;
+        Map<String, List<Double>> queryEmbeddingsString = null;
         try {
-            queryEmbeddings = new ObjectMapper().readValue(
+            queryEmbeddingsString = new ObjectMapper().readValue(
                     DEFAULT_COLLECTION_PATH.resolve(QUERY_EMBEDDINGS_FILENAME).toFile(), Map.class);
         } catch (IOException e) {
             e.printStackTrace();
             System.out.println("IOException while reading query embeddings JSON file");
+        }
+        Map<Integer, ArrayRealVector> queryEmbeddings = new HashMap<>();
+        for (Map.Entry<String, List<Double>> query : queryEmbeddingsString.entrySet()) {
+            Integer topicID = Integer.parseInt(query.getKey());
+            Double[] embeddings = query.getValue().toArray(new Double[query.getValue().size()]);
+            queryEmbeddings.put(topicID, new ArrayRealVector(embeddings));
         }
         return queryEmbeddings;
     }
@@ -152,5 +155,20 @@ public class CollectionReader {
 
         return docEmbeddings;
     }
+
+    public static ArrayRealVector readDocEmbedding(String docID, Map<String, Integer> docEmbeddings) {
+        ArrayRealVector embedding = null;
+        try (Stream<String> lines = Files.lines(DEFAULT_COLLECTION_PATH.resolve(DOC_EMBEDDINGS_FILENAME))) {
+            String[] lineContent = lines.skip(docEmbeddings.get(docID)).findFirst().get().split(",");
+            lineContent = Arrays.copyOfRange(lineContent, 1, lineContent.length);
+            embedding = new ArrayRealVector(Arrays.stream(lineContent).mapToDouble(
+                    Double::parseDouble).toArray());
+        } catch (IOException e) {
+            System.out.println("IOException while reading doc embedding with ID=" + docID);
+            e.printStackTrace();
+        }
+        return embedding;
+    }
+
 
 }
