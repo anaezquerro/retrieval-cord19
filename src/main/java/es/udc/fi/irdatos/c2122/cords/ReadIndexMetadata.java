@@ -25,9 +25,9 @@ import static es.udc.fi.irdatos.c2122.cords.IndexMetadataPool.indexMetadataPool;
  * index.
  */
 public class ReadIndexMetadata {
-    private static final Path DEFAULT_COLLECTION_PATH = Paths.get("2020-07-16");
-    private static String METADATA_FILE_NAME = "metadata.csv";
     private static String INDEX_FOLDER = "Index-StandardAnalyzer";
+    private static final Path DEFAULT_COLLECTION_PATH = Paths.get("2020-07-16");
+
 
     /**
      * @param args Optionally, the folder path to store the index can be passed as an argument. If no arguments are
@@ -53,7 +53,7 @@ public class ReadIndexMetadata {
         Path indexPath = Paths.get(indexFolder);
 
         // Read metadata.csv
-        List<Metadata> metadata = readMetadata(DEFAULT_COLLECTION_PATH.resolve(METADATA_FILE_NAME));
+        List<Metadata> metadata = readMetadata();
 
         // Create the IndexWriter
         IndexWriterConfig config = new IndexWriterConfig(new StandardAnalyzer());
