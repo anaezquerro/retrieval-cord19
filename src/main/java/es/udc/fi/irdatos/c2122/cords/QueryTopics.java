@@ -10,66 +10,81 @@ import org.apache.lucene.queryparser.classic.MultiFieldQueryParser;
 import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.*;
+import org.apache.lucene.search.similarities.LMJelinekMercerSimilarity;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
+
+import static es.udc.fi.irdatos.c2122.cords.ComputeSimilarity.readCosineSimilarities;
 
 public class QueryTopics {
-    private Path indexPath;
     private Topics.Topic[] topics;
     private int n;
+    private IndexSearcher isearcher;
+    private IndexReader ireader;
 
-    public QueryTopics(Path indexPath, Topics.Topic[] topics, int n) {
-        this.indexPath = indexPath;
+
+    public record TopDocument(String docID, double score) {}
+
+    public static class OrderTopDocument implements Comparator<TopDocument> {
+        public int compare(TopDocument doc1, TopDocument doc2) {
+            if (doc1.score() < doc2.score()) {
+                return 1;
+            } else if (doc1.score() > doc2.score()) {
+                return -1;
+            } else {
+                return 0;
+            }
+        }
+    }
+
+    public QueryTopics(IndexReader ireader, IndexSearcher isearcher, Topics.Topic[] topics, int n) {
+        this.ireader = ireader;
+        this.isearcher = isearcher;
         this.topics = topics;
         this.n = n;
     }
 
-    public Map<Integer, TopDocs> query(int typeQuery) {
-        // Create IndexReader from indexPath
-        IndexReader ireader = null;
-        try {
-            Directory directory = FSDirectory.open(indexPath);
-            ireader = DirectoryReader.open(directory);
-        } catch (CorruptIndexException e) {
-            System.out.println("CorruptIndexEception while reading " + indexPath.toString());
-            e.printStackTrace();
-        } catch (IOException e) {
-            System.out.println("IOException while reading " + indexPath.toString());
-            e.printStackTrace();
-        }
-
-        // Create the IndexSearcher
-        IndexSearcher isearcher = new IndexSearcher(ireader);
+    public Map<Integer, List<TopDocument>> query(int typeQuery) {
 
         // Make the Query basd on the typeQuery
         if (typeQuery == 0) {
-            return simpleQuery(isearcher);
+            return simpleQuery();
         } else if (typeQuery == 1) {
-            return phraseQuery(isearcher);
+            return phraseQuery();
+        } else if (typeQuery == 2) {
+            return embeddingsQuery();
         }
         return null;
 
     }
 
+    private List<TopDocument> coerce(TopDocs topDocs) {
+        List<TopDocument> topDocuments = Arrays.stream(topDocs.scoreDocs).map(x -> {
+            try {
+                return new TopDocument(ireader.document(x.doc).get("docID"), x.score);
+            } catch (IOException e) {
+                e.printStackTrace();
+                return null;
+            }}).toList();
+        return topDocuments;
+    }
+
     /**
      * Performs a multifield weighted query in the main fields: title, abstract and body.
-     * @param isearcher Lucene IndexSearcher to open the index path.
      * @returns Map object where topic IDs are the keys with they corresponding set of relevant documents.
      */
-    private Map<Integer, TopDocs> simpleQuery(IndexSearcher isearcher) {
+    private Map<Integer, List<TopDocument>> simpleQuery() {
         // Create the MultiField Query
         Map<String, Float> fields = Map.of("title", (float)0.3, "abstract", (float)0.4, "body", (float)0.3);
         QueryParser parser = new MultiFieldQueryParser(fields.keySet().toArray(new String[0]), new StandardAnalyzer(), fields);
 
         Query query;
-        Map<Integer, TopDocs> topicsTopDocs = new HashMap<>();
+        Map<Integer, List<TopDocument>> topicsTopDocs = new HashMap<>();
 
         // Loop for each topic to extract the topicID and make the query
         for (Topics.Topic topic : topics) {
@@ -95,14 +110,16 @@ public class QueryTopics {
 
             // Finally, add the top documents to the map object
             System.out.println(topDocs.totalHits + " results for the query: " + topic.query() + " [topic=" + topic.number() + "]" );
-            topicsTopDocs.put(topic.number(), topDocs);
+            List<TopDocument> topDocuments = coerce(topDocs);
+            topicsTopDocs.put(topic.number(), topDocuments);
         }
+
         return topicsTopDocs;
     }
 
 
-    private Map<Integer, TopDocs> phraseQuery(IndexSearcher isearcher) {
-        Map<Integer, TopDocs> topicsTopDocs = new HashMap<>();
+    private Map<Integer, List<TopDocument>> phraseQuery() {
+        Map<Integer, List<TopDocument>> topicsTopDocs = new HashMap<>();
         Map<String, Float> fieldBoosts = Map.of("title", 0.4F, "abstract", 0.3F, "body", 0.3F);
 
         for (Topics.Topic topic : topics) {
@@ -166,10 +183,19 @@ public class QueryTopics {
 
             // Finally, add the top documents to the map object
             System.out.println(topDocs.totalHits + " results for the query: " + topic.query() + " [topic=" + topic.number() + "]" );
-            topicsTopDocs.put(topic.number(), topDocs);
+            List<TopDocument> topDocuments = coerce(topDocs);
+            topicsTopDocs.put(topic.number(), topDocuments);
         }
 
         return topicsTopDocs;
+    }
+
+
+    private Map<Integer, List<TopDocument>> embeddingsQuery() {
+        // Obtain results stored in cosineSimilarity
+        Map<Integer, List<TopDocument>> topicsTopDocs = readCosineSimilarities(true);
+        return topicsTopDocs;
+
     }
 
 

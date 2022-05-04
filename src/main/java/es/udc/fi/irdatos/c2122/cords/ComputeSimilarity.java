@@ -28,10 +28,10 @@ import javax.swing.text.Document;
 
 public class ComputeSimilarity {
     private static Map<Integer, ArrayRealVector> queryEmbeddings;
-    private static final File FOLDER_RESULTS = new File("similarities");
+    private static final File FOLDER_RESULTS = new File("cosineSimilarity");
 
     // Class to store docID with document similarity
-    public record DocumentSimilarity(String docID, Integer topicID, Double sim) {
+    public record DocumentSimilarity(String docID, Integer topicID, double sim) {
 
         public String toString() {
             String out = docID + ": " + sim;
@@ -186,7 +186,7 @@ public class ComputeSimilarity {
 
         for (DocumentSimilarity docSim : docSimilarities) {
             try {
-                writer.write(String.join(" ", Integer.toString(topicID), docSim.docID(), Double.toString(docSim.sim())));
+                writer.write(String.join(" ", Integer.toString(topicID), docSim.docID(), Double.toString(docSim.sim()), "\n"));
             } catch (IOException e) {
                 System.out.println("IOException while saving results of document " + docSim.docID() + " in topic " + topicID);
                 e.printStackTrace();
@@ -202,10 +202,31 @@ public class ComputeSimilarity {
     }
 
 
+    public static Map<Integer, List<QueryTopics.TopDocument>> readCosineSimilarities(boolean order) {
+        Map<Integer, List<QueryTopics.TopDocument>> queryDocSimilarities = new HashMap<>();
+        for (int i = 1; i <= 50; i++) {
+            List<QueryTopics.TopDocument> docSimilarities = new ArrayList<>();
+            try {
+                Stream<String> stream = Files.lines(Paths.get(FOLDER_RESULTS.toString() + "/" + i + ".txt"));
+                stream.forEach(line -> docSimilarities.add(new QueryTopics.TopDocument(line.split(" ")[1], Double.parseDouble(line.split(" ")[2]))));
+            } catch (IOException e) {
+                System.out.println("IOException while reading cosine similarities results in topic " + i);
+                e.printStackTrace();
+            }
+            if (order) {
+                Collections.sort(docSimilarities, new QueryTopics.OrderTopDocument());
+            }
+
+            queryDocSimilarities.put(i, docSimilarities);
+        }
+        return queryDocSimilarities;
+    }
+
     public static void main(String[] args) {
         // Obtain query embeddings
         queryEmbeddings = readQueryEmbeddings();
-        Map<Integer, List<DocumentSimilarity>> queryDocSimilarities = computeSimilarity();
+        computeSimilarity();
+
     }
 
 }

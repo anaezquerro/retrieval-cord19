@@ -5,12 +5,16 @@ import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.search.*;
+import org.apache.lucene.search.similarities.LMJelinekMercerSimilarity;
+import org.apache.lucene.search.similarities.Similarity;
+import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 
 
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.Reader;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
@@ -24,37 +28,25 @@ import static es.udc.fi.irdatos.c2122.cords.CollectionReader.readTopicSet;
  * of each topic.
  */
 public class QueryEvaluation {
-    private static Path INDEX_PATH = Paths.get("Index-StandardAnalyzer");
+    private static Path INDEX_PATH = Paths.get("Index-StandardAnalyzer-LM");
+    private static Similarity similarity = new LMJelinekMercerSimilarity(0.1F);
 
     /**
      * Computes the average precision metric with the top documents returned by a query and the real relevant documents.
-     * @param reader IndexReader to obtain the fields of the documents returned.
      * @param predictedRelevant Top documents returned by the query.
      * @param realRelevant Real relevant documents obtained from the relevance judgements file.
      * @param k Threshold for calculating the precision in each document.
      * @returns Average precision at k.
      */
-    public static final Float averagePrecision(IndexReader reader, TopDocs predictedRelevant, List<String> realRelevant, int k) {
+    public static final Float averagePrecision(List<QueryTopics.TopDocument> predictedRelevant, List<String> realRelevant, int k) {
         float APk = 0;
         int TPseen = 0;
 
         // Loop for each document returned by the query
-        for (int i = 0; i < Math.min(predictedRelevant.totalHits.value, k); i++) {
+        for (int i = 0; i < Math.min(predictedRelevant.size(), k); i++) {
 
-            // Read the docID of the document
-            String docID;
-            try {
-                docID = reader.document(predictedRelevant.scoreDocs[i].doc).get("docID");
-            } catch (CorruptIndexException e) {
-                System.out.println("CorruptIndexException while reading a docID");
-                return null;
-            } catch (IOException e) {
-                System.out.println("IOException while reading a docID " + e);
-                e.printStackTrace();
-                return null;
-            }
+            String docID = predictedRelevant.get(i).docID();
 
-            // If the docID is in the real relevant documents list
             if (realRelevant.contains(docID)) {
                 TPseen = TPseen + 1;          // add +1 to the TP seen
                 APk = APk + (TPseen / (i+1));     // add TPseen/i to the APk summary
@@ -70,18 +62,17 @@ public class QueryEvaluation {
     /**
      * Computes the mean average precision metric with the top documents returned by all topic queries and the real
      * relevant documents of each topic.
-     * @param reader IndexReader to obtain the fields of the documents returned.
      * @param predictedRelevants Map object with the predicted relevant documents of each topic.
      * @param realRelevants Map object with the real relevant documents of each topic obtained form the relevance_judgments.txt file.
      * @param k Threshold for calculating the precision in each document.
      * @returns Mean average precision at k over all topics.
      */
-    public static Float meanAveragePrecision(IndexReader reader, Map<Integer, TopDocs> predictedRelevants, Map<Integer, List<String>> realRelevants, int k) {
+    public static Float meanAveragePrecision(Map<Integer, List<QueryTopics.TopDocument>> predictedRelevants, Map<Integer, List<String>> realRelevants, int k) {
         float mAPk = 0;
 
         // Loop for each topic
-        for (Map.Entry<Integer, TopDocs> topic : predictedRelevants.entrySet()) {
-            float APk = averagePrecision(reader, topic.getValue(), realRelevants.get(topic.getKey()), k);
+        for (Map.Entry<Integer, List<QueryTopics.TopDocument>> topic : predictedRelevants.entrySet()) {
+            float APk = averagePrecision(topic.getValue(), realRelevants.get(topic.getKey()), k);
             System.out.println("AveragePrecision at k=" + k + " in topic " + topic.getKey() + ": " + APk);
             mAPk = mAPk + APk;
         }
@@ -96,12 +87,11 @@ public class QueryEvaluation {
     /**
      * Generated the txt file with the submission format specified in the TREC-COVID Challenge once the top documents
      * of each topic have been obtained.
-     * @param reader IndexReader to access to the document ID.
      * @param topicsTopDocs Map object with the top documents of each topic.
      * @param filename File name which results text file will be stored with.
      * @param cut Number of top documents to submit in the results list.
      */
-    public static final void generateResults(IndexReader reader, Map<Integer, TopDocs> topicsTopDocs, String filename, int cut) {
+    public static final void generateResults(Map<Integer, List<QueryTopics.TopDocument>> topicsTopDocs, String filename, int cut) {
         // Create the new file (delete previously if it already exists)
         File file;
         try {
@@ -124,20 +114,13 @@ public class QueryEvaluation {
         // loop for each topic to submit the results
         String runtag = "ir-ppaa";
         for (int topic : topicsTopDocs.keySet()) {
-            TopDocs topDocs = topicsTopDocs.get(topic);    // obtain the top documents
+            List<QueryTopics.TopDocument> topDocuments = topicsTopDocs.get(topic);    // obtain the top documents
 
             // add each document
             for (int i=0; i < cut; i++) {
-                String docID = null;
-                try {
-                    docID = reader.document(topDocs.scoreDocs[i].doc).get("docID");
-                } catch (IOException e) {
-                    System.out.println("IOException while saving the document " + i + " of the topic " + topic);
-                    e.printStackTrace();
-                }
-
+                String docID = topDocuments.get(i).docID();
                 String rank = Integer.toString(i);
-                String score = Float.toString(topDocs.scoreDocs[i].score);
+                String score = Double.toString(topDocuments.get(i).score());
 
                 try {
                     writer.write(String.join(" ", Integer.toString(topic), "Q0", docID, rank, score, runtag, "\n"));
@@ -187,26 +170,49 @@ public class QueryEvaluation {
         // Read the relevance judgements
         Map<Integer, List<String>> topicRelevDocs = readRelevanceJudgements();
 
-        // Make the queries for each topic query
-        QueryTopics queryTopics = new QueryTopics(INDEX_PATH, topics, n);
-        Map<Integer, TopDocs> topicsTopDocs = queryTopics.query(typeQuery);
+        // Create IndexReader and IndexSearcher
+        ReaderSearcher creation = new ReaderSearcher();
+        IndexReader ireader = creation.reader();
+        IndexSearcher isearcher = creation.searcher();
 
-        // Create the IndexReader instance to read the indexed documents ID
-        IndexReader reader = null;
-        try {
-            reader = DirectoryReader.open(FSDirectory.open(INDEX_PATH));
-        } catch (CorruptIndexException e1) {
-            System.out.println("CorruptIndexException while reading the index " + INDEX_PATH.toString());
-        } catch (IOException e1) {
-            System.out.println("IOException while reading the index " + INDEX_PATH.toString());
-        }
+        // Make the queries for each topic query
+        QueryTopics queryTopics = new QueryTopics(ireader, isearcher, topics, n);
+        Map<Integer, List<QueryTopics.TopDocument>> topicsTopDocs = queryTopics.query(typeQuery);
 
         // Generate the results
         String filenameResults = "round5-submission.txt";
-        generateResults(reader, topicsTopDocs, filenameResults, n);
+        generateResults(topicsTopDocs, filenameResults, n);
 
         // Compute MAP@k metric
-        float mAPk = meanAveragePrecision(reader, topicsTopDocs, topicRelevDocs, k);
+        float mAPk = meanAveragePrecision(topicsTopDocs, topicRelevDocs, k);
+    }
+
+
+    public static class ReaderSearcher {
+        private static IndexReader ireader;
+        private static IndexSearcher isearcher;
+
+        public ReaderSearcher() {
+            // Create IndexReader
+            try {
+                Directory directory = FSDirectory.open(INDEX_PATH);
+                this.ireader = DirectoryReader.open(directory);
+            } catch (CorruptIndexException e) {
+                System.out.println("CorruptIndexEception while reading " + INDEX_PATH.toString());
+                e.printStackTrace();
+            } catch (IOException e) {
+                System.out.println("IOException while reading " + INDEX_PATH.toString());
+                e.printStackTrace();
+            }
+
+            // Create IndexSearcher
+            this.isearcher = new IndexSearcher(ireader);
+            this.isearcher.setSimilarity(similarity);
+        }
+
+        public IndexSearcher searcher() {return this.isearcher;}
+
+        public IndexReader reader() {return this.ireader;}
     }
 
 

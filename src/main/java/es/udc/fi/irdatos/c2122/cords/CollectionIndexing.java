@@ -9,20 +9,22 @@ import java.util.List;
 import es.udc.fi.irdatos.c2122.schemas.Metadata;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.index.*;
+import org.apache.lucene.search.similarities.BM25Similarity;
+import org.apache.lucene.search.similarities.LMJelinekMercerSimilarity;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.store.LockObtainFailedException;
 import org.apache.commons.io.FileUtils;
 
 import static es.udc.fi.irdatos.c2122.cords.CollectionReader.readMetadata;
-import static es.udc.fi.irdatos.c2122.cords.IndexMetadataPool.indexMetadataPool;
+import static es.udc.fi.irdatos.c2122.cords.IndexingPool.indexMetadataPool;
 
 
 /**
  * Implements the reading and parsing proccess of the collection and calls the indexing pool to create the collection
  * index.
  */
-public class ReadIndexMetadata {
-    private static String INDEX_FOLDER = "Index-StandardAnalyzer";
+public class CollectionIndexing {
+    private static String INDEX_FOLDER = "Index-StandardAnalyzer-LM";
     private static final Path DEFAULT_COLLECTION_PATH = Paths.get("2020-07-16");
 
 
@@ -54,6 +56,7 @@ public class ReadIndexMetadata {
 
         // Create the IndexWriter
         IndexWriterConfig config = new IndexWriterConfig(new StandardAnalyzer());
+        config.setSimilarity(new LMJelinekMercerSimilarity(0.1F));
         IndexWriter writer = null;
         try {
             writer = new IndexWriter(FSDirectory.open(indexPath), config);

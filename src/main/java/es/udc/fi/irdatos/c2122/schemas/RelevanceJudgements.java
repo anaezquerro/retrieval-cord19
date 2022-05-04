@@ -1,4 +1,4 @@
-package es.udc.fi.irdatos.c2122.cords;
+package es.udc.fi.irdatos.c2122.schemas;
 
 import java.util.List;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;

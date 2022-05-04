@@ -8,11 +8,11 @@ import com.fasterxml.jackson.dataformat.csv.CsvSchema;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import es.udc.fi.irdatos.c2122.schemas.Article;
 import es.udc.fi.irdatos.c2122.schemas.Metadata;
+import es.udc.fi.irdatos.c2122.schemas.RelevanceJudgements;
 import es.udc.fi.irdatos.c2122.schemas.Topics;
 import es.udc.fi.irdatos.c2122.util.ObjectReaderUtils;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
