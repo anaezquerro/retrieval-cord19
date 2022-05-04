@@ -31,15 +31,21 @@ public class ComputeSimilarity {
     private static final File FOLDER_RESULTS = new File("similarities");
 
     // Class to store docID with document similarity
-    public record DocumentSimilarity(String docID, Integer topicID, Double sim) {}
+    public record DocumentSimilarity(String docID, Integer topicID, Double sim) {
+
+        public String toString() {
+            String out = docID + ": " + sim;
+            return out;
+        }
+    }
 
     // Class to order document similarities
     private static class OrderDocumentSimilarity implements Comparator<DocumentSimilarity> {
         public int compare(DocumentSimilarity doc1, DocumentSimilarity doc2) {
             if (doc1.sim() < doc2.sim()) {
-                return -1;
-            } else if (doc1.sim() > doc2.sim()) {
                 return 1;
+            } else if (doc1.sim() > doc2.sim()) {
+                return -1;
             } else {
                 return 0;
             }
@@ -105,8 +111,8 @@ public class ComputeSimilarity {
         }
     }
 
-    public static Integer[] coealesce(int numWorkers, int N) {
-        int futuresPerWorker = (int) Math.round((double) N / (double) numWorkers);
+    public static Integer[] coalesce(int numWorkers, int N) {
+        int futuresPerWorker = (int) Math.floor((double) N / (double) numWorkers);
         int surplus = Math.floorMod(N, numWorkers);
 
         Integer[] indexes = new Integer[numWorkers + 1];
@@ -125,7 +131,8 @@ public class ComputeSimilarity {
         final int numCores = Runtime.getRuntime().availableProcessors();
 
         List<Integer> topics = IntStream.rangeClosed(1, 50).boxed().collect(Collectors.toList());
-        Integer[] workersDivision = coealesce(numCores, topics.size());
+        Integer[] workersDivision = coalesce(numCores, topics.size());
+        System.out.println(Arrays.toString(workersDivision));
         ExecutorService executor = Executors.newFixedThreadPool(numCores);
         List<TopicReader> workers = new ArrayList<>();
 
@@ -198,7 +205,6 @@ public class ComputeSimilarity {
     public static void main(String[] args) {
         // Obtain query embeddings
         queryEmbeddings = readQueryEmbeddings();
-
         Map<Integer, List<DocumentSimilarity>> queryDocSimilarities = computeSimilarity();
     }
 
