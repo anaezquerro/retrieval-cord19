@@ -6,12 +6,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 
-import com.fasterxml.jackson.databind.ObjectReader;
-import com.fasterxml.jackson.databind.json.JsonMapper;
-
+import es.udc.fi.irdatos.c2122.schemas.Metadata;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.index.*;
-import org.apache.lucene.search.similarities.BM25Similarity;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.store.LockObtainFailedException;
 import org.apache.commons.io.FileUtils;

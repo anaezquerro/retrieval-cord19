@@ -1,5 +1,6 @@
 package es.udc.fi.irdatos.c2122.cords;
 
+import es.udc.fi.irdatos.c2122.schemas.Topics;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.DirectoryReader;

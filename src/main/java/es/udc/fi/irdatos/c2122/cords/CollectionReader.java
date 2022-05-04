@@ -5,6 +5,10 @@ import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.dataformat.csv.CsvMapper;
 import com.fasterxml.jackson.dataformat.csv.CsvSchema;
+import com.fasterxml.jackson.dataformat.xml.XmlMapper;
+import es.udc.fi.irdatos.c2122.schemas.Article;
+import es.udc.fi.irdatos.c2122.schemas.Metadata;
+import es.udc.fi.irdatos.c2122.schemas.Topics;
 import es.udc.fi.irdatos.c2122.util.ObjectReaderUtils;
 
 import java.io.IOException;
@@ -21,11 +25,17 @@ import org.apache.commons.math3.linear.ArrayRealVector;
  * Implements reading and parsing methods for TREC-COVID Collection.
  */
 public class CollectionReader {
-    private static final ObjectReader articleReader = JsonMapper.builder().findAndAddModules().build().readerFor(Article.class);
+    // Path global variables
     private static final Path DEFAULT_COLLECTION_PATH = Paths.get("2020-07-16");
-    private static String METADATA_FILE_NAME = "metadata.csv";
+    private static String METADATA_FILENAME = "metadata.csv";
     private static String QUERY_EMBEDDINGS_FILENAME = "query_embeddings.json";
     private static String DOC_EMBEDDINGS_FILENAME = "cord_19_embeddings_2020-07-16.csv";
+    private static String TOPICS_FILENAME = "topics_set.xml";
+    private static String RELEVANCE_JUDGEMENTS_FILENAME = "relevance_judgements.txt";
+
+    // Readers
+    private static final ObjectReader ARTICLE_READER = JsonMapper.builder().findAndAddModules().build().readerFor(Article.class);
+    private static final ObjectReader TOPICS_READER = XmlMapper.builder().findAndAddModules().build().readerFor(Topics.class);
 
 
 
@@ -37,7 +47,7 @@ public class CollectionReader {
     public static final String[] readArticle(Path articlePath) {
         Article article;
         try {
-            article = articleReader.readValue(articlePath.toFile());
+            article = ARTICLE_READER.readValue(articlePath.toFile());
         } catch (IOException e) {
             System.out.println("While reading a JSON file an error has occurred: " + articlePath);
             return null;
@@ -105,7 +115,7 @@ public class CollectionReader {
      * @returns List of Metadata objects representing each row of the CSV.
      */
     public static final List<Metadata> readMetadata() {
-        Path metadataPath = DEFAULT_COLLECTION_PATH.resolve(METADATA_FILE_NAME);
+        Path metadataPath = DEFAULT_COLLECTION_PATH.resolve(METADATA_FILENAME);
         CsvSchema schema = CsvSchema.emptySchema().withHeader().withArrayElementSeparator("; ");
         ObjectReader reader = new CsvMapper().readerFor(Metadata.class).with(schema);
 
@@ -121,6 +131,10 @@ public class CollectionReader {
     }
 
 
+    /**
+     * Parses query embeddings file and returns for each topic query identifier the embedding vector.
+     * @returns Map object formed by (topicID, queryEmbedding) pairs.
+     */
     public static final Map<Integer, ArrayRealVector> readQueryEmbeddings() {
         Map<String, List<Double>> queryEmbeddingsString = null;
         try {
@@ -139,35 +153,79 @@ public class CollectionReader {
         return queryEmbeddings;
     }
 
-    public static final Map<String, Integer> readDocEmbeddings() {
-        Map<String, Integer> docEmbeddings = new HashMap<>();
-        Stream<String> stream = null;
+    public static final Stream<String> streamDocEmbeddings() {
+        Stream<String> docEmbeddingsStream = null;
         try {
-            stream = Files.lines(DEFAULT_COLLECTION_PATH.resolve(DOC_EMBEDDINGS_FILENAME), StandardCharsets.UTF_8);
+            docEmbeddingsStream = Files.lines(DEFAULT_COLLECTION_PATH.resolve(DOC_EMBEDDINGS_FILENAME));
         } catch (IOException e) {
-            System.out.println("IOException while reading document embeddings CSV file");
-        }
-
-        int[] index = { 0 };
-        stream.forEach(line -> {
-            docEmbeddings.put(line.substring(0, line.indexOf(",")), index[0]++);
-        });
-
-        return docEmbeddings;
-    }
-
-    public static ArrayRealVector readDocEmbedding(String docID, Map<String, Integer> docEmbeddings) {
-        ArrayRealVector embedding = null;
-        try (Stream<String> lines = Files.lines(DEFAULT_COLLECTION_PATH.resolve(DOC_EMBEDDINGS_FILENAME))) {
-            String[] lineContent = lines.skip(docEmbeddings.get(docID)).findFirst().get().split(",");
-            lineContent = Arrays.copyOfRange(lineContent, 1, lineContent.length);
-            embedding = new ArrayRealVector(Arrays.stream(lineContent).mapToDouble(
-                    Double::parseDouble).toArray());
-        } catch (IOException e) {
-            System.out.println("IOException while reading doc embedding with ID=" + docID);
+            System.out.println("IOException while creating document embeddings stream");
             e.printStackTrace();
         }
-        return embedding;
+        return docEmbeddingsStream;
+    }
+
+
+    /**
+     * Reads and parses topics set using the defined structure in Topics.java file.
+     * @returns A 50-length array with information about each topic, stored with the Topics.Topic structure.
+     */
+    public static final Topics.Topic[] readTopicSet() {
+        // Define topics path
+        Path topicsPath = DEFAULT_COLLECTION_PATH.resolve(TOPICS_FILENAME);
+
+        // Use Topics and Topics.Topic structure to parse the topic set information
+        Topics.Topic[] topics;
+        try {
+            Topics topicsList = TOPICS_READER.readValue(topicsPath.toFile());
+            topics = topicsList.topic();
+        } catch (IOException e) {
+            System.out.println("IOException while reading topics in: " + topicsPath.toString());
+            return null;
+        }
+
+        // Returns an array consisted of each topic information (number, query, question and narrative)
+        return topics;
+    }
+
+    /**
+     * Reads and parses relevance judgements.
+     * @returns Map object where each key is a topic ID with its corresponding list of relevant documents identificers.
+     */
+    public static final Map<Integer, List<String>> readRelevanceJudgements() {
+        // Define relevance judgments path
+        Path collectionPath = DEFAULT_COLLECTION_PATH;
+        Path relevanceJudgementsPath = collectionPath.resolve(RELEVANCE_JUDGEMENTS_FILENAME);
+
+        // Read an parse relevance judgments file
+        CsvSchema schema = CsvSchema.builder().setColumnSeparator(' ').addColumn("topicID").addColumn("rank").addColumn("docID").addColumn("score").build();
+        ObjectReader reader = new CsvMapper().readerFor(RelevanceJudgements.class).with(schema);
+
+        // Creating a list with each relevance judgments using the defined structure in RelevanceJudgements.java
+        // (topicID, docID, score)
+        List<RelevanceJudgements> docsRelevance;
+        try {
+            docsRelevance = ObjectReaderUtils.readAllValues(relevanceJudgementsPath, reader);
+        } catch (IOException e) {
+            System.out.println("IOException while reading relevance judgments in " + relevanceJudgementsPath.toString());
+            e.printStackTrace();
+            return null;
+        }
+
+        // Create the Map object where each topic ID is stored with its corresponding list of relevant documents identifiers
+        Map<Integer, List<String>> topicRelevDocs = new HashMap<>();
+        for (int i=1; i < 51; i++) {
+            List<String> emptyList = new ArrayList<>();    // firstly create an empty list
+            topicRelevDocs.put(i, emptyList);                    // add to the map object the index i with the empty list
+        }
+
+        // Read the relevance judgments list and add in the list of each topicID the corresponding document identifier
+        for (RelevanceJudgements doc : docsRelevance) {
+            // We do not care if the score is 1 or 2 to assess its relevance
+            if (doc.score() != 0) {
+                topicRelevDocs.get(doc.topicID()).add(doc.docID());
+            }
+        }
+        return topicRelevDocs;
     }
 
 

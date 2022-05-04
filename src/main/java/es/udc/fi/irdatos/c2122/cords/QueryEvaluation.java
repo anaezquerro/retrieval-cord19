@@ -1,11 +1,6 @@
 package es.udc.fi.irdatos.c2122.cords;
 
-import com.fasterxml.jackson.databind.ObjectReader;
-import com.fasterxml.jackson.dataformat.csv.CsvMapper;
-import com.fasterxml.jackson.dataformat.csv.CsvSchema;
-import com.fasterxml.jackson.dataformat.xml.XmlMapper;
-import es.udc.fi.irdatos.c2122.util.ObjectReaderUtils;
-import org.apache.commons.io.FileUtils;
+import es.udc.fi.irdatos.c2122.schemas.Topics;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
@@ -20,85 +15,16 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 
+import static es.udc.fi.irdatos.c2122.cords.CollectionReader.readRelevanceJudgements;
+import static es.udc.fi.irdatos.c2122.cords.CollectionReader.readTopicSet;
+
 
 /**
  * Class for reading and parsing TREC-COVID topics set and relevance judgments and make queries using the query field
  * of each topic.
  */
-public class ReadQueryTopics {
-    private static final Path COLLECTION_PATH = Paths.get("2020-07-16");
+public class QueryEvaluation {
     private static Path INDEX_PATH = Paths.get("Index-StandardAnalyzer");
-    private static String TOPICS_FILENAME = "topics_set.xml";
-    private static String RELEVANCE_JUDGEMENTS_FILENAME = "relevance_judgements.txt";
-    private static final ObjectReader TOPICS_READER = XmlMapper.builder().findAndAddModules().build().readerFor(Topics.class);
-    private static String RESULTS_FILENAME = "round5-submission.txt";
-
-    /**
-     * Reads and parses topics set using the defined structure in Topics.java file.
-     * @returns A 50-length array with information about each topic, stored with the Topics.Topic structure.
-     */
-    private static final Topics.Topic[] readTopicSet() {
-        // Define topics path
-        Path collectionPath = COLLECTION_PATH;
-        Path topicsPath = collectionPath.resolve(TOPICS_FILENAME);
-
-        // Use Topics and Topics.Topic structure to parse the topic set information
-        Topics.Topic[] topics;
-        try {
-            Topics topicsList = TOPICS_READER.readValue(topicsPath.toFile());
-            topics = topicsList.topic();
-        } catch (IOException e) {
-            System.out.println("IOException while reading topics in: " + topicsPath.toString());
-            return null;
-        }
-
-        // Returns an array consisted of each topic information (number, query, question and narrative)
-        return topics;
-    }
-
-    /**
-     * Reads and parses relevance judgements.
-     * @returns Map object where each key is a topic ID with its corresponding list of relevant documents identificers.
-     */
-    private static final Map<Integer, List<String>> readRelevanceJudgements() {
-        // Define relevance judgments path
-        Path collectionPath = COLLECTION_PATH;
-        Path relevanceJudgementsPath = collectionPath.resolve(RELEVANCE_JUDGEMENTS_FILENAME);
-
-        // Read an parse relevance judgments file
-        CsvSchema schema = CsvSchema.builder().setColumnSeparator(' ').addColumn("topicID").addColumn("rank").addColumn("docID").addColumn("score").build();
-        ObjectReader reader = new CsvMapper().readerFor(RelevanceJudgements.class).with(schema);
-
-        // Creating a list with each relevance judgments using the defined structure in RelevanceJudgements.java
-        // (topicID, docID, score)
-        List<RelevanceJudgements> docsRelevance;
-        try {
-            docsRelevance = ObjectReaderUtils.readAllValues(relevanceJudgementsPath, reader);
-        } catch (IOException e) {
-            System.out.println("IOException while reading relevance judgments in " + relevanceJudgementsPath.toString());
-            e.printStackTrace();
-            return null;
-        }
-
-        // Create the Map object where each topic ID is stored with its corresponding list of relevant documents identifiers
-        Map<Integer, List<String>> topicRelevDocs = new HashMap<>();
-        for (int i=1; i < 51; i++) {
-            List<String> emptyList = new ArrayList<>();    // firstly create an empty list
-            topicRelevDocs.put(i, emptyList);                    // add to the map object the index i with the empty list
-        }
-
-        // Read the relevance judgments list and add in the list of each topicID the corresponding document identifier
-        for (RelevanceJudgements doc : docsRelevance) {
-            // We do not care if the score is 1 or 2 to assess its relevance
-            if (doc.score() != 0) {
-                topicRelevDocs.get(doc.topicID()).add(doc.docID());
-            }
-        }
-        return topicRelevDocs;
-    }
-
-
-
 
     /**
      * Computes the average precision metric with the top documents returned by a query and the real relevant documents.
@@ -276,7 +202,8 @@ public class ReadQueryTopics {
         }
 
         // Generate the results
-        generateResults(reader, topicsTopDocs, RESULTS_FILENAME, n);
+        String filenameResults = "round5-submission.txt";
+        generateResults(reader, topicsTopDocs, filenameResults, n);
 
         // Compute MAP@k metric
         float mAPk = meanAveragePrecision(reader, topicsTopDocs, topicRelevDocs, k);
