@@ -23,17 +23,33 @@ import static es.udc.fi.irdatos.c2122.cords.CollectionReader.streamDocEmbeddings
 import org.apache.commons.math3.linear.ArrayRealVector;
 import org.apache.lucene.search.TopDocs;
 
+import javax.swing.text.Document;
+
 
 public class ComputeSimilarity {
     private static Map<Integer, ArrayRealVector> queryEmbeddings;
-    private static final Path DEFAULT_COLLECTION_PATH = Paths.get("2020-07-16");
+    private static final File FOLDER_RESULTS = new File("similarities");
 
+    // Class to store docID with document similarity
+    public record DocumentSimilarity(String docID, Integer topicID, Double sim) {}
 
+    // Class to order document similarities
+    private static class OrderDocumentSimilarity implements Comparator<DocumentSimilarity> {
+        public int compare(DocumentSimilarity doc1, DocumentSimilarity doc2) {
+            if (doc1.sim() < doc2.sim()) {
+                return -1;
+            } else if (doc1.sim() > doc2.sim()) {
+                return 1;
+            } else {
+                return 0;
+            }
+        }
+    }
 
     public static class TopicReader implements Runnable {
         private List<Integer> topicsID;
         private int workerID;
-        private volatile Map<Integer, Map<String, Double>> queryDocSimilarities = new HashMap<>();
+        private volatile Map<Integer, List<DocumentSimilarity>> queryDocSimilarities = new HashMap<>();
 
         public TopicReader(List<Integer> topicsID, int workerID) {
             this.topicsID = topicsID;
@@ -52,8 +68,8 @@ public class ComputeSimilarity {
                 // Obtain the query embedding
                 ArrayRealVector queryEmbedding = queryEmbeddings.get(topicID);
 
-                // Create Map object in which store for each document, the similarity with the current query
-                Map<String, Double> docSimilarities = new HashMap<>();
+                // Create list object in which store for each document, the similarity with the current query
+                List<DocumentSimilarity> docSimilarities = new ArrayList<>();
 
                 // Create document embeddings stream (in order to iterate over CSV lines)
                 Stream<String> docEmbeddingsStream = streamDocEmbeddings();
@@ -68,19 +84,23 @@ public class ComputeSimilarity {
                     ArrayRealVector docEmbedding = new ArrayRealVector(Arrays.stream(lineContent).mapToDouble(Double::parseDouble).toArray());
 
                     // Compute similarity and store it (we do not need document embeddings)
-                    double sim = cosineSimilarity(docEmbedding, queryEmbedding);
-                    docSimilarities.put(docID, sim);
+                    DocumentSimilarity docSim = new DocumentSimilarity(docID, topicID, cosineSimilarity(docEmbedding, queryEmbedding));
+                    docSimilarities.add(docSim);
                 });
+
+                // Order docSimilarities by similarity value
+                Collections.sort(docSimilarities, new OrderDocumentSimilarity());
+
 
                 // Store the document similarities in the global Map object for each topic
                 queryDocSimilarities.put(topicID, docSimilarities);
 
                 // Store in disk all results
-                saveTopicEmbeddingsResults(topicID, docSimilarities);
+                saveQueryDocSimilarities(topicID, docSimilarities);
             }
         }
 
-        public Map<Integer, Map<String, Double>> result() {
+        public Map<Integer, List<DocumentSimilarity>> result() {
             return queryDocSimilarities;
         }
     }
@@ -101,7 +121,7 @@ public class ComputeSimilarity {
         return indexes;
     }
 
-    public static Map<Integer, Map<String, Double>> computeSimilarity() {
+    public static Map<Integer, List<DocumentSimilarity>> computeSimilarity() {
         final int numCores = Runtime.getRuntime().availableProcessors();
 
         List<Integer> topics = IntStream.rangeClosed(1, 50).boxed().collect(Collectors.toList());
@@ -128,20 +148,19 @@ public class ComputeSimilarity {
             System.exit(-2);
         }
 
-        Map<Integer, Map<String, Double>> queryDocSimilarities = new HashMap<>();
+        Map<Integer, List<DocumentSimilarity>> queryDocSimilarities = new HashMap<>();
         for (TopicReader worker : workers) {
-            Map<Integer, Map<String, Double>> result = worker.result();
+            Map<Integer, List<DocumentSimilarity>> result = worker.result();
             queryDocSimilarities.putAll(result);
         }
         return queryDocSimilarities;
     }
 
 
-    public static void saveTopicEmbeddingsResults(int topicID, Map<String, Double> queryDocSimilarity) {
-        File folder = new File("cosineSimilarity");
-        File file = new File(folder.toString() + "/" + topicID + ".txt");
+    public static void saveQueryDocSimilarities(int topicID, List<DocumentSimilarity> docSimilarities) {
+        File file = new File(FOLDER_RESULTS.toString() + "/" + topicID + ".txt");
 
-        if (!folder.exists()) { folder.mkdirs(); }
+        if (!FOLDER_RESULTS.exists()) { FOLDER_RESULTS.mkdirs(); }
         try {
             if (file.exists()) {
                 file.delete();
@@ -158,11 +177,11 @@ public class ComputeSimilarity {
             e.printStackTrace();
         }
 
-        for (Map.Entry<String, Double> queryDocSim : queryDocSimilarity.entrySet()) {
+        for (DocumentSimilarity docSim : docSimilarities) {
             try {
-                writer.write(String.join(" ", Integer.toString(topicID), queryDocSim.getKey(), Double.toString(queryDocSim.getValue())));
+                writer.write(String.join(" ", Integer.toString(topicID), docSim.docID(), Double.toString(docSim.sim())));
             } catch (IOException e) {
-                System.out.println("IOException while saving results of document " + queryDocSim.getKey() + " in topic " + topicID);
+                System.out.println("IOException while saving results of document " + docSim.docID() + " in topic " + topicID);
                 e.printStackTrace();
             }
         }
@@ -180,7 +199,7 @@ public class ComputeSimilarity {
         // Obtain query embeddings
         queryEmbeddings = readQueryEmbeddings();
 
-        Map<Integer, Map<String, Double>> queryDocSimilarities = computeSimilarity();
+        Map<Integer, List<DocumentSimilarity>> queryDocSimilarities = computeSimilarity();
     }
 
 }
