@@ -1,5 +1,6 @@
 package es.udc.fi.irdatos.c2122.cords;
 
+import es.udc.fi.irdatos.c2122.schemas.TopDocument;
 import es.udc.fi.irdatos.c2122.schemas.Topics;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.DirectoryReader;
@@ -38,7 +39,7 @@ public class QueryEvaluation {
      * @param k Threshold for calculating the precision in each document.
      * @returns Average precision at k.
      */
-    public static final Float averagePrecision(List<QueryTopics.TopDocument> predictedRelevant, List<String> realRelevant, int k) {
+    public static final Float averagePrecision(List<TopDocument> predictedRelevant, List<String> realRelevant, int k) {
         float APk = 0;
         int TPseen = 0;
 
@@ -67,11 +68,11 @@ public class QueryEvaluation {
      * @param k Threshold for calculating the precision in each document.
      * @returns Mean average precision at k over all topics.
      */
-    public static Float meanAveragePrecision(Map<Integer, List<QueryTopics.TopDocument>> predictedRelevants, Map<Integer, List<String>> realRelevants, int k) {
+    public static Float meanAveragePrecision(Map<Integer, List<TopDocument>> predictedRelevants, Map<Integer, List<String>> realRelevants, int k) {
         float mAPk = 0;
 
         // Loop for each topic
-        for (Map.Entry<Integer, List<QueryTopics.TopDocument>> topic : predictedRelevants.entrySet()) {
+        for (Map.Entry<Integer, List<TopDocument>> topic : predictedRelevants.entrySet()) {
             float APk = averagePrecision(topic.getValue(), realRelevants.get(topic.getKey()), k);
             System.out.println("AveragePrecision at k=" + k + " in topic " + topic.getKey() + ": " + APk);
             mAPk = mAPk + APk;
@@ -91,7 +92,7 @@ public class QueryEvaluation {
      * @param filename File name which results text file will be stored with.
      * @param cut Number of top documents to submit in the results list.
      */
-    public static final void generateResults(Map<Integer, List<QueryTopics.TopDocument>> topicsTopDocs, String filename, int cut) {
+    public static final void generateResults(Map<Integer, List<TopDocument>> topicsTopDocs, String filename, int cut) {
         // Create the new file (delete previously if it already exists)
         File file;
         try {
@@ -114,7 +115,7 @@ public class QueryEvaluation {
         // loop for each topic to submit the results
         String runtag = "ir-ppaa";
         for (int topic : topicsTopDocs.keySet()) {
-            List<QueryTopics.TopDocument> topDocuments = topicsTopDocs.get(topic);    // obtain the top documents
+            List<TopDocument> topDocuments = topicsTopDocs.get(topic);    // obtain the top documents
 
             // add each document
             for (int i=0; i < cut; i++) {
@@ -158,7 +159,7 @@ public class QueryEvaluation {
         int typeQuery = 0;
         if (args.length > 2) {
             typeQuery = Integer.parseInt(args[2]);
-            if (typeQuery > 2) {
+            if (typeQuery > 4) {
                 System.out.println("typeQuery parameter must be 0 [simpleQuery] or 1 [phraseQuery]");
                 return;
             }
@@ -177,7 +178,7 @@ public class QueryEvaluation {
 
         // Make the queries for each topic query
         QueryTopics queryTopics = new QueryTopics(ireader, isearcher, topics, n);
-        Map<Integer, List<QueryTopics.TopDocument>> topicsTopDocs = queryTopics.query(typeQuery);
+        Map<Integer, List<TopDocument>> topicsTopDocs = queryTopics.query(typeQuery);
 
         // Generate the results
         String filenameResults = "round5-submission.txt";

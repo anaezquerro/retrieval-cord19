@@ -9,14 +9,13 @@ import java.util.List;
 import es.udc.fi.irdatos.c2122.schemas.Metadata;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.index.*;
-import org.apache.lucene.search.similarities.BM25Similarity;
 import org.apache.lucene.search.similarities.LMJelinekMercerSimilarity;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.store.LockObtainFailedException;
 import org.apache.commons.io.FileUtils;
 
 import static es.udc.fi.irdatos.c2122.cords.CollectionReader.readMetadata;
-import static es.udc.fi.irdatos.c2122.cords.IndexingPool.indexMetadataPool;
+import static es.udc.fi.irdatos.c2122.cords.PoolIndexing.indexMetadataPool;
 
 
 /**

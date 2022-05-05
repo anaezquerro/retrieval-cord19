@@ -6,12 +6,10 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.dataformat.csv.CsvMapper;
 import com.fasterxml.jackson.dataformat.csv.CsvSchema;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
-import es.udc.fi.irdatos.c2122.schemas.Article;
-import es.udc.fi.irdatos.c2122.schemas.Metadata;
-import es.udc.fi.irdatos.c2122.schemas.RelevanceJudgements;
-import es.udc.fi.irdatos.c2122.schemas.Topics;
+import es.udc.fi.irdatos.c2122.schemas.*;
 import es.udc.fi.irdatos.c2122.util.ObjectReaderUtils;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -26,12 +24,13 @@ import org.apache.commons.math3.linear.ArrayRealVector;
  */
 public class CollectionReader {
     // Path global variables
-    private static final Path DEFAULT_COLLECTION_PATH = Paths.get("2020-07-16");
-    private static String METADATA_FILENAME = "metadata.csv";
-    private static String QUERY_EMBEDDINGS_FILENAME = "query_embeddings.json";
-    private static String DOC_EMBEDDINGS_FILENAME = "cord_19_embeddings_2020-07-16.csv";
-    private static String TOPICS_FILENAME = "topics_set.xml";
-    private static String RELEVANCE_JUDGEMENTS_FILENAME = "relevance_judgements.txt";
+    public static final Path DEFAULT_COLLECTION_PATH = Paths.get("2020-07-16");
+    public static String METADATA_FILENAME = "metadata.csv";
+    public static String QUERY_EMBEDDINGS_FILENAME = "query_embeddings.json";
+    public static String DOC_EMBEDDINGS_FILENAME = "cord_19_embeddings_2020-07-16.csv";
+    public static String TOPICS_FILENAME = "topics_set.xml";
+    public static String RELEVANCE_JUDGEMENTS_FILENAME = "relevance_judgements.txt";
+    public static int EMBEDDINGS_DIMENSIONALITY = 768;
 
     // Readers
     private static final ObjectReader ARTICLE_READER = JsonMapper.builder().findAndAddModules().build().readerFor(Article.class);
@@ -228,5 +227,29 @@ public class CollectionReader {
         return topicRelevDocs;
     }
 
+    public static Map<Integer, List<TopDocument>> readCosineSimilarities(String foldername, boolean order) {
+        Map<Integer, List<TopDocument>> queryDocSimilarities = new HashMap<>();
+        File folder = new File(foldername);
+        for (int i = 1; i <= 50; i++) {
+            List<TopDocument> docSimilarities = new ArrayList<>();
+            try {
+                Stream<String> stream = Files.lines(Paths.get(folder.toString() + "/" + i + ".txt"));
+                stream.forEach(line -> {
+                    String[] lineContent = line.split(" ");
+                    docSimilarities.add(new TopDocument(lineContent[1],
+                            Double.parseDouble(lineContent[2]), Integer.parseInt(lineContent[0])));
+                });
+            } catch (IOException e) {
+                System.out.println("IOException while reading cosine similarities results in topic " + i);
+                e.printStackTrace();
+            }
+            if (order) {
+                Collections.sort(docSimilarities, new TopDocumentOrder());
+            }
+
+            queryDocSimilarities.put(i, docSimilarities);
+        }
+        return queryDocSimilarities;
+    }
 
 }

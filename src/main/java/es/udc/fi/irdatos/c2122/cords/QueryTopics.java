@@ -1,25 +1,24 @@
 package es.udc.fi.irdatos.c2122.cords;
 
+import es.udc.fi.irdatos.c2122.schemas.TopDocument;
 import es.udc.fi.irdatos.c2122.schemas.Topics;
+import org.apache.commons.math3.linear.ArrayRealVector;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
-import org.apache.lucene.index.CorruptIndexException;
-import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.queryparser.classic.MultiFieldQueryParser;
 import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.*;
-import org.apache.lucene.search.similarities.LMJelinekMercerSimilarity;
-import org.apache.lucene.store.Directory;
-import org.apache.lucene.store.FSDirectory;
 
 import java.io.IOException;
-import java.nio.file.Path;
+import java.lang.reflect.Array;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
-import static es.udc.fi.irdatos.c2122.cords.ComputeSimilarity.readCosineSimilarities;
+import static es.udc.fi.irdatos.c2122.cords.CollectionReader.readCosineSimilarities;
+import static es.udc.fi.irdatos.c2122.cords.CollectionReader.readQueryEmbeddings;
 
 public class QueryTopics {
     private Topics.Topic[] topics;
@@ -27,20 +26,6 @@ public class QueryTopics {
     private IndexSearcher isearcher;
     private IndexReader ireader;
 
-
-    public record TopDocument(String docID, double score) {}
-
-    public static class OrderTopDocument implements Comparator<TopDocument> {
-        public int compare(TopDocument doc1, TopDocument doc2) {
-            if (doc1.score() < doc2.score()) {
-                return 1;
-            } else if (doc1.score() > doc2.score()) {
-                return -1;
-            } else {
-                return 0;
-            }
-        }
-    }
 
     public QueryTopics(IndexReader ireader, IndexSearcher isearcher, Topics.Topic[] topics, int n) {
         this.ireader = ireader;
@@ -58,29 +43,33 @@ public class QueryTopics {
             return phraseQuery();
         } else if (typeQuery == 2) {
             return embeddingsQuery();
+        } else if (typeQuery == 3) {
+            return embeddingsQueryRocchio(1F, 0.75F, 0.15F);
         }
         return null;
 
     }
 
-    private List<TopDocument> coerce(TopDocs topDocs) {
+    private List<TopDocument> coerce(TopDocs topDocs, int topicID) {
         List<TopDocument> topDocuments = Arrays.stream(topDocs.scoreDocs).map(x -> {
             try {
-                return new TopDocument(ireader.document(x.doc).get("docID"), x.score);
+                return new TopDocument(ireader.document(x.doc).get("docID"), x.score, topicID);
             } catch (IOException e) {
                 e.printStackTrace();
                 return null;
-            }}).toList();
+            }
+        }).toList();
         return topDocuments;
     }
 
     /**
      * Performs a multifield weighted query in the main fields: title, abstract and body.
+     *
      * @returns Map object where topic IDs are the keys with they corresponding set of relevant documents.
      */
     private Map<Integer, List<TopDocument>> simpleQuery() {
         // Create the MultiField Query
-        Map<String, Float> fields = Map.of("title", (float)0.3, "abstract", (float)0.4, "body", (float)0.3);
+        Map<String, Float> fields = Map.of("title", (float) 0.3, "abstract", (float) 0.4, "body", (float) 0.3);
         QueryParser parser = new MultiFieldQueryParser(fields.keySet().toArray(new String[0]), new StandardAnalyzer(), fields);
 
         Query query;
@@ -109,8 +98,8 @@ public class QueryTopics {
             }
 
             // Finally, add the top documents to the map object
-            System.out.println(topDocs.totalHits + " results for the query: " + topic.query() + " [topic=" + topic.number() + "]" );
-            List<TopDocument> topDocuments = coerce(topDocs);
+            System.out.println(topDocs.totalHits + " results for the query: " + topic.query() + " [topic=" + topic.number() + "]");
+            List<TopDocument> topDocuments = coerce(topDocs, topic.number());
             topicsTopDocs.put(topic.number(), topDocuments);
         }
 
@@ -133,7 +122,7 @@ public class QueryTopics {
             for (String word : topic.query().split(" ")) {
 
                 if (bigram.size() == 2) {
-                    for (String field : new String[] {"title", "abstract", "body"}) {
+                    for (String field : new String[]{"title", "abstract", "body"}) {
                         PhraseQuery.Builder bigramQueryBuilder = new PhraseQuery.Builder();
                         bigramQueryBuilder.add(new Term(field, bigram.get(0)), 0);
                         bigramQueryBuilder.add(new Term(field, bigram.get(1)), 1);
@@ -144,7 +133,7 @@ public class QueryTopics {
                     bigram.remove(0);    // delete the first element
                 }
                 if (trigram.size() == 3) {
-                    for (String field : new String[] {"title", "abstract", "body"}) {
+                    for (String field : new String[]{"title", "abstract", "body"}) {
                         PhraseQuery.Builder trigramQueryBuilder = new PhraseQuery.Builder();
                         trigramQueryBuilder.add(new Term(field, trigram.get(0)), 0);
                         trigramQueryBuilder.add(new Term(field, trigram.get(1)), 1);
@@ -166,7 +155,7 @@ public class QueryTopics {
                 }
                 pos++;
             }
-            phraseQueryBuilder.setSlop((int) Math.ceil(topic.query().split(" ").length*2.5));
+            phraseQueryBuilder.setSlop((int) Math.ceil(topic.query().split(" ").length * 2.5));
             PhraseQuery phraseQuery = phraseQueryBuilder.build();
             booleanQueryBuilder.add(new BoostQuery(phraseQuery, fieldBoosts.get("body")), BooleanClause.Occur.SHOULD);
             BooleanQuery booleanQuery = booleanQueryBuilder.build();
@@ -182,8 +171,8 @@ public class QueryTopics {
             }
 
             // Finally, add the top documents to the map object
-            System.out.println(topDocs.totalHits + " results for the query: " + topic.query() + " [topic=" + topic.number() + "]" );
-            List<TopDocument> topDocuments = coerce(topDocs);
+            System.out.println(topDocs.totalHits + " results for the query: " + topic.query() + " [topic=" + topic.number() + "]");
+            List<TopDocument> topDocuments = coerce(topDocs, topic.number());
             topicsTopDocs.put(topic.number(), topDocuments);
         }
 
@@ -193,11 +182,39 @@ public class QueryTopics {
 
     private Map<Integer, List<TopDocument>> embeddingsQuery() {
         // Obtain results stored in cosineSimilarity
-        Map<Integer, List<TopDocument>> topicsTopDocs = readCosineSimilarities(true);
-        return topicsTopDocs;
+        Map<Integer, List<TopDocument>> topicsTopDocs = readCosineSimilarities("cosineSimilarity", true);
 
+        return obtainTopN(topicsTopDocs);
     }
 
 
+    private Map<Integer, List<TopDocument>> embeddingsQueryRocchio(float alpha, float beta, float gamma) {
+        // Obtain query embeddings
+        Map<Integer, ArrayRealVector> queryEmbeddings = readQueryEmbeddings();
 
+        // Obtain results by cosine similarity between embeddings
+        Map<Integer, List<TopDocument>> initialResults = embeddingsQuery();
+
+        // Compute new queries based on Rocchio Algorithm
+        PoolRocchio poolRocchio = new PoolRocchio(initialResults, queryEmbeddings);
+        Map<Integer, ArrayRealVector> newQueryEmbeddings = poolRocchio.computeRocchio();
+
+        for (Map.Entry<Integer, ArrayRealVector> entry : newQueryEmbeddings.entrySet()) {
+            System.out.println(entry.getKey() + ": " + entry.getValue().getDimension());
+        }
+
+        // Compute again cosine similarity between new query embeddings and document embeddings
+        PoolCosineSimilarity poolCosine = new PoolCosineSimilarity(newQueryEmbeddings);
+        Map<Integer, List<TopDocument>> newResults = poolCosine.computeSimilarity();
+        return obtainTopN(newResults);
+    }
+
+    private Map<Integer, List<TopDocument>> obtainTopN(Map<Integer, List<TopDocument>> topicsTopDocs) {
+        topicsTopDocs = topicsTopDocs.entrySet().stream().peek(
+                result ->  {
+                    result.setValue(result.getValue().subList(0, n));
+                }
+        ).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        return topicsTopDocs;
+    }
 }
