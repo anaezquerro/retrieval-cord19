@@ -74,6 +74,10 @@ public class PoolCosineSimilarity {
                     ArrayRealVector docEmbedding = new ArrayRealVector(Arrays.stream(lineContent).mapToDouble(Double::parseDouble).toArray());
                     if (docEmbedding.getDimension() != CollectionReader.EMBEDDINGS_DIMENSIONALITY) {
                         System.out.println(docID);
+                        System.out.println(docEmbedding);
+                    } else if (queryEmbedding.getDimension() != CollectionReader.EMBEDDINGS_DIMENSIONALITY) {
+                        System.out.println(topicID);
+                        System.out.println(queryEmbedding);
                     } else {
                         // Compute similarity and store it (we do not need document embeddings)
                         TopDocument topDoc = new TopDocument(docID, cosineSimilarity(docEmbedding, queryEmbedding), topicID);
