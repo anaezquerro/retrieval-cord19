@@ -1,6 +1,7 @@
 package es.udc.fi.irdatos.c2122.cords;
 
 import es.udc.fi.irdatos.c2122.schemas.TopDocument;
+import es.udc.fi.irdatos.c2122.schemas.TopDocumentOrder;
 import org.apache.commons.math3.analysis.interpolation.LinearInterpolator;
 import org.apache.commons.math3.linear.ArrayRealVector;
 
@@ -18,76 +19,124 @@ import static es.udc.fi.irdatos.c2122.cords.CollectionReader.streamDocEmbeddings
 public class PoolRocchio {
     private static Map<Integer, List<TopDocument>> initialResults;
     private static Map<Integer, ArrayRealVector> queryEmbeddings;
-    private static float alpha = 1F;
-    private static float beta = 0.75F;
-    private static float gamma = 0.15F;
+    private static Map<Integer, List<TopDocument>> newResults;
+    private static Map<Integer, ArrayRealVector> newQueryEmbeddings;
+    private static Map<String, ArrayRealVector> docEmbeddings = new HashMap<>();
+    private static float alpha;
+    private static float beta;
+    private static float gamma;
 
-    public PoolRocchio(Map<Integer, List<TopDocument>> initialResults, Map<Integer, ArrayRealVector> queryEmbeddings) {
+    public PoolRocchio(Map<Integer, List<TopDocument>> initialResults, Map<Integer, ArrayRealVector> queryEmbeddings,
+                       float alpha, float beta, float gamma) {
         this.initialResults = initialResults;
         this.queryEmbeddings = queryEmbeddings;
+        this.alpha = alpha;
+        this.beta = beta;
+        this.gamma = gamma;
     }
 
     private class WorkerRocchio implements Runnable {
         private List<Integer> topicsID;
         private int workerID;
-        private Map<Integer, ArrayRealVector> newQueryEmbeddings;
+        private Map<Integer, ArrayRealVector> newWorkerQueryEmbeddings;
+        private Map<Integer, List<TopDocument>> newWorkerResults;
 
 
         private WorkerRocchio(List<Integer> topicsID, int workerID) {
             this.topicsID = topicsID;
             this.workerID = workerID;
-            this.newQueryEmbeddings = new HashMap<>();
+            this.newWorkerQueryEmbeddings = new HashMap<>();
+            this.newWorkerResults = new HashMap<>();
         }
 
         @Override
         public void run() {
             for (int topicID : topicsID) {
-                ArrayRealVector newQuery = newQueryRocchio(queryEmbeddings.get(topicID), initialResults.get(topicID),
-                        alpha, beta, gamma);
-                newQueryEmbeddings.put(topicID, newQuery);
+                // Obtain new queries
+                System.out.println("Worker " + workerID + ": Computing Rocchio for topic " + topicID);
+                ArrayRealVector newQuery = computeRocchio(queryEmbeddings.get(topicID), initialResults.get(topicID));
+                newWorkerQueryEmbeddings.put(topicID, newQuery);
+            }
+
+            // Compute again cosine similarities
+            for (int topicID : topicsID) {
+                System.out.println("Worker " + workerID + ": Computing again cosine similarities for topic " + topicID);
+                List<TopDocument> topDocuments = new ArrayList<>();
+
+                // Compute cosine similarities for all documents en store them in topDocuments list
+                for (String docID : docEmbeddings.keySet()) {
+                    ArrayRealVector docEmbedding = docEmbeddings.get(docID);
+                    double sim = PoolCosineSimilarity.cosineSimilarity(docEmbedding, newWorkerQueryEmbeddings.get(topicID));
+                    topDocuments.add(new TopDocument(docID, sim, topicID));
+                }
+
+                // Order topDocuments list by score
+                Collections.sort(topDocuments, new TopDocumentOrder());
+
+                // Save them in Map object
+                newWorkerResults.put(topicID, topDocuments);
             }
         }
 
-        private Map<Integer, ArrayRealVector> result() {
-            return newQueryEmbeddings;
+
+        private ArrayRealVector computeRocchio(ArrayRealVector queryEmbedding, List<TopDocument> relevant) {
+            // Obtain only docIDs of relevant documents
+            List<String> relevantDocs = relevant.stream().map(doc -> doc.docID()).toList();
+
+            // Read document embeddings file to compute the new query
+
+            // relevantSum = vector sum of relevant documents, nonRelevantSum = vector sum of non relevant documents
+            // relevantCount = number of relevant documents, nonRelevantCount = number of non relevant documents
+            ArrayRealVector relevantSum = new ArrayRealVector(CollectionReader.EMBEDDINGS_DIMENSIONALITY);
+            ArrayRealVector nonRelevantSum = new ArrayRealVector(CollectionReader.EMBEDDINGS_DIMENSIONALITY);
+            int relevantCount = 0;
+            int nonRelevantCount = 0;
+
+            // Iterate over the embeddings document (is preferable storing similarities, not embeddings vectors)
+            for (String docID : docEmbeddings.keySet()) {
+                ArrayRealVector docEmbedding = docEmbeddings.get(docID);
+                if (relevantDocs.contains(docID)) {
+                    relevantSum = relevantSum.add(docEmbedding);
+                    relevantCount++;
+                } else {
+                    nonRelevantSum = nonRelevantSum.add(docEmbedding);
+                    nonRelevantCount++;
+                }
+            }
+
+            // Compute the new query
+            ArrayRealVector newQueryEmbedding = (ArrayRealVector) queryEmbedding.mapMultiply((double)alpha);
+            newQueryEmbedding = newQueryEmbedding.add(relevantSum.mapMultiply((double)(beta/relevantCount)));
+            newQueryEmbedding = newQueryEmbedding.subtract(nonRelevantSum.mapMultiply((double)(gamma/nonRelevantCount)));
+
+            return newQueryEmbedding;
         }
+
+        private Map<Integer, ArrayRealVector> newQueries() {
+            return newWorkerQueryEmbeddings;
+        }
+
+        private Map<Integer, List<TopDocument>> newSimilarities() {
+            return newWorkerResults;
+        }
+
+
     }
 
-    private ArrayRealVector newQueryRocchio(ArrayRealVector queryEmbedding, List<TopDocument> relevant, float alpha, float beta, float gamma) {
-        // Obtain only docIDs of relevant documents
-        List<String> relevantDocs = relevant.stream().map(doc -> doc.docID()).toList();
-
-        // Read document embeddings file to compute the sum
-        Stream<String> docEmbeddingsStream = streamDocEmbeddings();
-        ArrayRealVector relevantSum = new ArrayRealVector(CollectionReader.EMBEDDINGS_DIMENSIONALITY);
-        ArrayRealVector nonRelevantSum = new ArrayRealVector(CollectionReader.EMBEDDINGS_DIMENSIONALITY);
-        int relevantCount = 0;
-        int nonRelevantCount = 0;
-
-        for (Iterator<String> it = docEmbeddingsStream.iterator(); it.hasNext(); ) {
+    public void launch() {
+        System.out.println("Computing Rocchio with alpha=" + alpha + ", beta=" + beta + ", gamma=" + gamma);
+        // Read all documents embeddings
+        Stream<String> stream = streamDocEmbeddings();
+        for (Iterator<String> it = stream.iterator(); it.hasNext(); ) {
             String line = it.next();
             String[] lineContent = line.split(",");
             String docID = lineContent[0];
             lineContent = Arrays.copyOfRange(lineContent, 1, lineContent.length);
-            ArrayRealVector docEmbedding = new ArrayRealVector(Arrays.stream(lineContent).mapToDouble(Double::parseDouble).toArray());
-
-            if (relevantDocs.contains(docID)) {
-                relevantSum = relevantSum.add(docEmbedding);
-                relevantCount++;
-            } else {
-                nonRelevantSum = nonRelevantSum.add(docEmbedding);
-                nonRelevantCount++;
-            }
+            ArrayRealVector embedding = new ArrayRealVector(Arrays.stream(lineContent)
+                    .mapToDouble(Double::parseDouble).toArray());
+            docEmbeddings.put(docID, embedding);
         }
 
-        ArrayRealVector newQueryEmbedding = (ArrayRealVector) queryEmbedding.mapMultiply((double)alpha);
-        newQueryEmbedding = newQueryEmbedding.add(relevantSum.mapMultiply((double)(beta/relevantCount)));
-        newQueryEmbedding = newQueryEmbedding.subtract(nonRelevantSum.mapMultiply((double)(gamma/nonRelevantCount)));
-
-        return newQueryEmbedding;
-    }
-
-    public Map<Integer, ArrayRealVector> computeRocchio() {
         final int numCores = Runtime.getRuntime().availableProcessors();
         System.out.println("Computing Rocchio Similarity with " + numCores + " cores");
         List<Integer> topics = queryEmbeddings.keySet().stream().toList();
@@ -109,19 +158,27 @@ public class PoolRocchio {
         // End the executor
         executor.shutdown();
         try {
-            executor.awaitTermination(10, TimeUnit.MINUTES);
+            executor.awaitTermination(1, TimeUnit.HOURS);
         } catch (final InterruptedException e) {
             e.printStackTrace();
             System.exit(-2);
         }
 
-        Map<Integer, ArrayRealVector> newQueryEmbeddings = new HashMap<>();
+        newQueryEmbeddings = new HashMap<>();
+        newResults = new HashMap<>();
         for (WorkerRocchio worker : workers) {
-            Map<Integer, ArrayRealVector> result = worker.result();
-            newQueryEmbeddings.putAll(result);
+            newQueryEmbeddings.putAll(worker.newQueries());
+            newResults.putAll(worker.newSimilarities());
         }
-        return newQueryEmbeddings;
 
+    }
+
+    public Map<Integer, ArrayRealVector> getNewQueryEmbeddings() {
+        return newQueryEmbeddings;
+    }
+
+    public Map<Integer, List<TopDocument>> getNewSimilarities() {
+        return newResults;
     }
 
     public Integer[] coalesce(int numWorkers, int N) {

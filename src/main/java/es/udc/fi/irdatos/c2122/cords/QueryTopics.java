@@ -1,6 +1,7 @@
 package es.udc.fi.irdatos.c2122.cords;
 
 import es.udc.fi.irdatos.c2122.schemas.TopDocument;
+import es.udc.fi.irdatos.c2122.schemas.TopDocumentOrder;
 import es.udc.fi.irdatos.c2122.schemas.Topics;
 import org.apache.commons.math3.linear.ArrayRealVector;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
@@ -17,14 +18,14 @@ import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static es.udc.fi.irdatos.c2122.cords.CollectionReader.readCosineSimilarities;
-import static es.udc.fi.irdatos.c2122.cords.CollectionReader.readQueryEmbeddings;
+import static es.udc.fi.irdatos.c2122.cords.CollectionReader.*;
+import static es.udc.fi.irdatos.c2122.cords.ObtainTransitionMatrix.computePageRank;
 
 public class QueryTopics {
-    private Topics.Topic[] topics;
-    private int n;
-    private IndexSearcher isearcher;
-    private IndexReader ireader;
+    private static Topics.Topic[] topics;
+    private static int n;
+    private static IndexSearcher isearcher;
+    private static IndexReader ireader;
 
 
     public QueryTopics(IndexReader ireader, IndexSearcher isearcher, Topics.Topic[] topics, int n) {
@@ -44,13 +45,17 @@ public class QueryTopics {
         } else if (typeQuery == 2) {
             return embeddingsQuery();
         } else if (typeQuery == 3) {
-            return embeddingsQueryRocchio(1F, 0.75F, 0.15F);
+            return embeddingsQueryRocchio(1F, 0.7F, 0.9F);
+        } else if (typeQuery == 4) {
+            return queryPageRank();
+        } else {
+            System.out.println("No queries have been applied");
         }
         return null;
 
     }
 
-    private List<TopDocument> coerce(TopDocs topDocs, int topicID) {
+    private static List<TopDocument> coerce(TopDocs topDocs, int topicID) {
         List<TopDocument> topDocuments = Arrays.stream(topDocs.scoreDocs).map(x -> {
             try {
                 return new TopDocument(ireader.document(x.doc).get("docID"), x.score, topicID);
@@ -67,7 +72,7 @@ public class QueryTopics {
      *
      * @returns Map object where topic IDs are the keys with they corresponding set of relevant documents.
      */
-    private Map<Integer, List<TopDocument>> simpleQuery() {
+    private static Map<Integer, List<TopDocument>> simpleQuery() {
         // Create the MultiField Query
         Map<String, Float> fields = Map.of("title", (float) 0.3, "abstract", (float) 0.4, "body", (float) 0.3);
         QueryParser parser = new MultiFieldQueryParser(fields.keySet().toArray(new String[0]), new StandardAnalyzer(), fields);
@@ -181,12 +186,9 @@ public class QueryTopics {
 
 
     private Map<Integer, List<TopDocument>> embeddingsQuery() {
-        // Obtain results stored in cosineSimilarity
         Map<Integer, List<TopDocument>> topicsTopDocs = readCosineSimilarities("cosineSimilarity", true);
-
         return obtainTopN(topicsTopDocs);
     }
-
 
     private Map<Integer, List<TopDocument>> embeddingsQueryRocchio(float alpha, float beta, float gamma) {
         // Obtain query embeddings
@@ -196,17 +198,36 @@ public class QueryTopics {
         Map<Integer, List<TopDocument>> initialResults = embeddingsQuery();
 
         // Compute new queries based on Rocchio Algorithm
-        PoolRocchio poolRocchio = new PoolRocchio(initialResults, queryEmbeddings);
-        Map<Integer, ArrayRealVector> newQueryEmbeddings = poolRocchio.computeRocchio();
+        PoolRocchio poolRocchio = new PoolRocchio(initialResults, queryEmbeddings, alpha, beta, gamma);
+        poolRocchio.launch();
+        Map<Integer, List<TopDocument>> newResults = poolRocchio.getNewSimilarities();
 
-        for (Map.Entry<Integer, ArrayRealVector> entry : newQueryEmbeddings.entrySet()) {
-            System.out.println(entry.getKey() + ": " + entry.getValue().getDimension());
+        return obtainTopN(newResults);
+    }
+
+    private Map<Integer, List<TopDocument>> queryPageRank() {
+        // Obtain initial results
+        Map<Integer, List<TopDocument>> initialResults = simpleQuery();
+        Map<Integer, List<TopDocument>> newResults = new HashMap<>();
+
+        // Compute page rank for each topic
+        for (Topics.Topic topic : topics) {
+            List<TopDocument> initialDocuments = initialResults.get(topic.number());
+            ArrayRealVector pageRank = computePageRank(initialDocuments, 0.5, 1000);
+
+            // Multiply the initial score for pageRank value
+            List<TopDocument> newDocuments = new ArrayList<>();
+            for (int i=0; i < initialDocuments.size(); i++) {
+                TopDocument initialDocument = initialDocuments.get(i);
+                newDocuments.add(new TopDocument(initialDocument.docID(),
+                        initialDocument.score() * pageRank.getEntry(i),
+                        topic.number()));
+            }
+            Collections.sort(newDocuments, new TopDocumentOrder());
+            newResults.put(topic.number(), newDocuments);
         }
 
-        // Compute again cosine similarity between new query embeddings and document embeddings
-        PoolCosineSimilarity poolCosine = new PoolCosineSimilarity(newQueryEmbeddings);
-        Map<Integer, List<TopDocument>> newResults = poolCosine.computeSimilarity();
-        return obtainTopN(newResults);
+        return newResults;
     }
 
     private Map<Integer, List<TopDocument>> obtainTopN(Map<Integer, List<TopDocument>> topicsTopDocs) {

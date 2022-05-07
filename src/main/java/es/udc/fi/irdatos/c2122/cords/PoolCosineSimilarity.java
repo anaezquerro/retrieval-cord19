@@ -35,11 +35,6 @@ public class PoolCosineSimilarity {
         this.folderResults = new File(foldername);
     }
 
-
-    public static double cosineSimilarity(ArrayRealVector doc, ArrayRealVector query) {
-        return (doc.dotProduct(query)) / (doc.getNorm() * query.getNorm());
-    }
-
     private class WorkerCS implements Runnable {
         private List<Integer> topicsID;
         private int workerID;
@@ -156,6 +151,9 @@ public class PoolCosineSimilarity {
         return queryDocSimilarities;
     }
 
+    public static double cosineSimilarity(ArrayRealVector doc, ArrayRealVector query) {
+        return (doc.dotProduct(query)) / (doc.getNorm() * query.getNorm());
+    }
 
     private void saveQueryDocSimilarities(int topicID, List<TopDocument> docSimilarities) {
         File file = new File(folderResults.toString() + "/" + topicID + ".txt");

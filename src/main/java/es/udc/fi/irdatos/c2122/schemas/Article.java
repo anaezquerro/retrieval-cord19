@@ -12,12 +12,19 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
  * - ref_entries of the article, i.e. notes of the tables and figures.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record Article(List<Content> body_text, Map<String, Reference> bib_entries, Map<String, Figure> ref_entries) {
+public record Article(Metadata metadata, List<Content> body_text, Map<String, Reference> bib_entries,
+                      Map<String, Figure> ref_entries) {
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static record Metadata(List<Author> authors) {}
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static record Content(String text, String section) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public static record Reference(String title) {}
+    public static record Author(String first, List<String> middle, String last) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static record Reference(String title, List<Author> authors) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static record Figure(String text) {}

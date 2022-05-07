@@ -157,13 +157,8 @@ public class QueryEvaluation {
         int n = Integer.parseInt(args[0]);
         int k = Integer.parseInt(args[1]);
         int typeQuery = 0;
-        if (args.length > 2) {
-            typeQuery = Integer.parseInt(args[2]);
-            if (typeQuery > 4) {
-                System.out.println("typeQuery parameter must be 0 [simpleQuery] or 1 [phraseQuery]");
-                return;
-            }
-        }
+        typeQuery = Integer.parseInt(args[2]);
+
 
         // Read the topics set
         Topics.Topic[] topics = readTopicSet();
@@ -172,7 +167,7 @@ public class QueryEvaluation {
         Map<Integer, List<String>> topicRelevDocs = readRelevanceJudgements();
 
         // Create IndexReader and IndexSearcher
-        ReaderSearcher creation = new ReaderSearcher();
+        ReaderSearcher creation = new ReaderSearcher(INDEX_PATH, similarity);
         IndexReader ireader = creation.reader();
         IndexSearcher isearcher = creation.searcher();
 
@@ -189,32 +184,6 @@ public class QueryEvaluation {
     }
 
 
-    public static class ReaderSearcher {
-        private static IndexReader ireader;
-        private static IndexSearcher isearcher;
-
-        public ReaderSearcher() {
-            // Create IndexReader
-            try {
-                Directory directory = FSDirectory.open(INDEX_PATH);
-                this.ireader = DirectoryReader.open(directory);
-            } catch (CorruptIndexException e) {
-                System.out.println("CorruptIndexEception while reading " + INDEX_PATH.toString());
-                e.printStackTrace();
-            } catch (IOException e) {
-                System.out.println("IOException while reading " + INDEX_PATH.toString());
-                e.printStackTrace();
-            }
-
-            // Create IndexSearcher
-            this.isearcher = new IndexSearcher(ireader);
-            this.isearcher.setSimilarity(similarity);
-        }
-
-        public IndexSearcher searcher() {return this.isearcher;}
-
-        public IndexReader reader() {return this.ireader;}
-    }
 
 
 }

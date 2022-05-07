@@ -33,17 +33,36 @@ public class CollectionReader {
     public static int EMBEDDINGS_DIMENSIONALITY = 768;
 
     // Readers
-    private static final ObjectReader ARTICLE_READER = JsonMapper.builder().findAndAddModules().build().readerFor(Article.class);
-    private static final ObjectReader TOPICS_READER = XmlMapper.builder().findAndAddModules().build().readerFor(Topics.class);
+    public static final ObjectReader ARTICLE_READER = JsonMapper.builder().findAndAddModules().build().readerFor(Article.class);
+    public static final ObjectReader TOPICS_READER = XmlMapper.builder().findAndAddModules().build().readerFor(Topics.class);
 
 
+    public static class ParsedArticle {
+        private String body;
+        private String authors;
+
+        public ParsedArticle(String body, String authors) {
+            this.body = body;
+            this.authors = authors;
+        }
+
+        public void setBody(String newBody) {
+            this.body = newBody;
+        }
+        public void setAuthors(String newAuthors) {
+            this.authors = newAuthors;
+        }
+
+        public String body() {return body;}
+        public String authors() {return authors;}
+    }
 
     /**
      * Parses the content of the JSON files with the given structure in the class Article.java
      * @param articlePath Path of the JSON file.
      * @returns String array with the body text of the JSON file, references notes of the article and figure/table notes.
      */
-    public static final String[] readArticle(Path articlePath) {
+    public static final ParsedArticle readArticle(Path articlePath) {
         Article article;
         try {
             article = ARTICLE_READER.readValue(articlePath.toFile());
@@ -52,38 +71,31 @@ public class CollectionReader {
             return null;
         }
 
-        StringBuilder articleText = new StringBuilder();
-
+        StringBuilder articleTextBuilder = new StringBuilder();
         // add article text
         for (Article.Content content : article.body_text()) {
-            articleText.append(content.section());
-            articleText.append('\n');
-            articleText.append(content.text());
-            articleText.append('\n');
+            articleTextBuilder.append(content.section());
+            articleTextBuilder.append('\n');
+            articleTextBuilder.append(content.text());
+            articleTextBuilder.append('\n');
         }
+        String articleText = articleTextBuilder.toString();
 
-        // add article bibliography
-        StringBuilder bibliography = new StringBuilder();
-        for (Map.Entry<String, Article.Reference> reference : article.bib_entries().entrySet()) {
-            if (reference.getValue().title().length() == 0) {
-                continue;
+        // add article authors
+        String articleAuthors = "";
+        if (!Objects.isNull(article.metadata().authors())) {
+            List<Article.Author> authors = article.metadata().authors();
+            StringBuilder articleAuthorsBuilder = new StringBuilder();
+            for (int i=0; i < authors.size(); i++) {
+                articleAuthorsBuilder.append(authors.get(i).last());
+                articleAuthorsBuilder.append("; ");
             }
-            bibliography.append(reference.getValue().title());
-            bibliography.append('\n');
+            articleAuthors = articleAuthorsBuilder.toString();
         }
 
-        // add article figures
-        StringBuilder figures = new StringBuilder();
-        for (Map.Entry<String, Article.Figure> figure : article.ref_entries().entrySet()) {
-            if (figure.getValue().text().length() == 0) {
-                continue;
-            }
-            figures.append(figure.getValue().text());
-            figures.append('\n');
-        }
 
-        String[] articleContent = new String[]{articleText.toString(), bibliography.toString(), figures.toString()};
-        return articleContent;
+        ParsedArticle parsedArticle = new ParsedArticle(articleText, articleAuthors);
+        return parsedArticle;
     }
 
     /**
@@ -92,21 +104,14 @@ public class CollectionReader {
      * @returns String array where each element is the concatenation of one specific field of all articles specified in
      * articlesPath.
      */
-    public static final String[] readArticles(List<Path> articlesPath) {
-        StringBuilder[] articlesContentBuilder = new StringBuilder[3];
-        for (int i = 0; i < 3; i++) {
-            articlesContentBuilder[i] = new StringBuilder();
-        }
+    public static final ParsedArticle readArticles(List<Path> articlesPath) {
+        ParsedArticle completeArticle = new ParsedArticle("", "");
         for (Path articlePath : articlesPath) {
-            String[] articlesContent = readArticle(articlePath);
-            for (int i = 0; i < 3; i++) {
-                articlesContentBuilder[i].append(articlesContent[i]);
-                articlesContentBuilder[i].append('\n');
-            }
+            ParsedArticle parsedArticle = readArticle(articlePath);
+            completeArticle.setBody(completeArticle.body() + "\n" + parsedArticle.body());
+            completeArticle.setAuthors(completeArticle.authors() + "\n" + parsedArticle.authors());
         }
-
-        String[] articlesContent = Arrays.stream(articlesContentBuilder).map(builder -> builder.toString()).toArray(String[]::new);
-        return articlesContent;
+        return completeArticle;
     }
 
     /**
