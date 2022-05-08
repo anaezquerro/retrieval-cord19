@@ -9,6 +9,7 @@ public class TopDocument {
     private ArrayRealVector embedding;
     private String title;
     private String authors;
+    private int docCID;
 
 
     public TopDocument(String docID, double score, int topicID) {
@@ -55,4 +56,9 @@ public class TopDocument {
 
     public String title() {return title;}
     public String authors() {return authors;}
+    public void setCID(int docCID) {
+        this.docCID = docCID;
+    }
+
+    public int docCID() {return docCID;}
 }

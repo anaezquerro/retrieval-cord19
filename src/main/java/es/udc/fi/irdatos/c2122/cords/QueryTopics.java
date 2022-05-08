@@ -196,12 +196,36 @@ public class QueryTopics {
         Map<Integer, ArrayRealVector> queryEmbeddings = readQueryEmbeddings();
 
         // Obtain initial results
-        PoolCosineSimilarity pool = new PoolCosineSimilarity(queryEmbeddings);
         Map<Integer, List<TopDocument>> initialResults = CollectionReader.readCosineSimilarities("cosineSimilarity", true);
         initialResults = obtainTopN(initialResults);
 
+        // Obtain results of simpleQuery
+        Map<Integer, List<TopDocument>> simpleQueryResults = simpleQuery();
+
+        // Merge both results
+        Map<Integer, List<TopDocument>> mergedResults = new HashMap<>();
+        for (Integer topic : initialResults.keySet()) {
+            Map<String, TopDocument> mergedresultsTopic = new HashMap<>();
+            for (TopDocument topDocument : initialResults.get(topic)) {
+                mergedresultsTopic.put(topDocument.docID(), topDocument);
+            }
+            for (TopDocument topDocument : simpleQueryResults.get(topic)) {
+                if (mergedresultsTopic.containsKey(topDocument.docID())) {
+                    double oldScore = mergedresultsTopic.get(topDocument.docID()).score();
+                    mergedresultsTopic.get(topDocument.docID()).setScore(oldScore + topDocument.score());
+                } else {
+                    mergedresultsTopic.put(topDocument.docID(), topDocument);
+                }
+            }
+            List<TopDocument> topDocuments = new ArrayList<>();
+            topDocuments.addAll(mergedresultsTopic.values());
+            Collections.sort(topDocuments, new TopDocumentOrder());
+            mergedResults.put(topic, topDocuments);
+        }
+
+        mergedResults = obtainTopN(mergedResults);
         // Compute again using page rank
-        ObtainTransitionMatrix poolPageRank = new ObtainTransitionMatrix(isearcher, ireader, initialResults,
+        ObtainTransitionMatrix poolPageRank = new ObtainTransitionMatrix(isearcher, ireader, mergedResults,
                 alpha, iterations);
         Map<Integer, List<TopDocument>> newResults = poolPageRank.launch();
         return newResults;

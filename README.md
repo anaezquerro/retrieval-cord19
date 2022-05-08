@@ -55,16 +55,17 @@ Los resultados obtenidos fueron:
 - `MAP@k=1000`:  0.013394228
 
 
-## Aproximación 3. *Cosine Similarity* con *Page Ranking*
+## Aproximación 3. *Multifield Weighted Query* y *Cosine Similarity* con *Page Ranking*
 
 Para computar esta _query_ fue necesario programar lo equivalente a un *grafo de referencias* etnre los documentos 
 de la colección. Esta implementación se encuentra en la clase `ObtainTransitionMatrix`, con la que se puede obtener 
 la matriz de probabilidades de transición y computar el algoritmo de *page ranking* descrito en [*Introduction to 
 Information Retrieval. Link analysis*](https://nlp.stanford.edu/IR-book/html/htmledition/markov-chains-1.html). 
 
-La implementación de esta _query_ se basa en computar la similitud coseno con los _embeddings_ de los documentos y 
-posterirmente, asumiendo que los n primeros documentos con mayor _score_ son relevantes, utilizar _Page Ranking_ para 
-alterar su _score_ por su ranking de página (vector _x_ descrito en el libro).
+La implementación de esta _query_ se basa en tomar los resultados iniciales de la `simpleQuery()`, computar la 
+similitud coseno con los _embeddings_ de los documentos y mezclar los resultados (sumando los _scores_ y tomando los 
+_n_ mejores). Posteriormente, asumiendo que los n primeros documentos con mayor _score_ son relevantes, 
+utilizar _Page Ranking_ para alterar su _score_ por su ranking de página (vector _x_ descrito en el libro).
 
 Los parámetros que se usan en esta aproximación son:
 
@@ -88,6 +89,6 @@ _n_ documentos obtenidos. Si _n_ es muy grande, el tiempo de cómputo será muy 
 
 Los resultados obtenidos fueron:
 
-- `MAP@k=10`: 0.42399997
-- `MAP@k=100`: 0.066199996
-- `MAP@k=1000`:  0.013394228
+- `MAP@k=10`:  0.41799998
+- `MAP@k=100`: 0.058799986
+- `MAP@k=1000`:  0.0056915004

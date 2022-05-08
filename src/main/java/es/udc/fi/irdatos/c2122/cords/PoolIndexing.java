@@ -31,8 +31,8 @@ import static es.udc.fi.irdatos.c2122.cords.CollectionReader.*;
  */
 public class PoolIndexing {
     private Path POOL_COLLECTION_PATH = CollectionReader.DEFAULT_COLLECTION_PATH;
-    private String INDEX_FOLDERNAME = "Index-StandardAnalyzer";
-    private Similarity similarity = new LMJelinekMercerSimilarity(0.1F);
+    public static String INDEX_FOLDERNAME = "Index-StandardAnalyzer";
+    public static Similarity similarity = new LMJelinekMercerSimilarity(0.1F);
     private static Map<String, float[]> docEmbeddings;
 
     public class WorkerIndexing implements Runnable {
