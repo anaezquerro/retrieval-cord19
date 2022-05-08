@@ -2,13 +2,12 @@ package es.udc.fi.irdatos.c2122.cords;
 
 import com.fasterxml.jackson.datatype.jsr310.deser.key.LocalDateKeyDeserializer;
 import es.udc.fi.irdatos.c2122.schemas.Metadata;
+import es.udc.fi.irdatos.c2122.schemas.Topics;
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.math3.linear.ArrayRealVector;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.*;
-import org.apache.lucene.index.CorruptIndexException;
-import org.apache.lucene.index.IndexOptions;
-import org.apache.lucene.index.IndexWriter;
-import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.*;
 import org.apache.lucene.search.similarities.LMJelinekMercerSimilarity;
 import org.apache.lucene.search.similarities.Similarity;
 import org.apache.lucene.store.FSDirectory;
@@ -17,12 +16,12 @@ import org.apache.lucene.store.LockObtainFailedException;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static es.udc.fi.irdatos.c2122.cords.AuxiliarFunctions.*;
 import static es.udc.fi.irdatos.c2122.cords.CollectionReader.*;
@@ -34,6 +33,7 @@ public class PoolIndexing {
     private Path POOL_COLLECTION_PATH = CollectionReader.DEFAULT_COLLECTION_PATH;
     private String INDEX_FOLDERNAME = "Index-StandardAnalyzer";
     private Similarity similarity = new LMJelinekMercerSimilarity(0.1F);
+    private static Map<String, float[]> docEmbeddings;
 
     public class WorkerIndexing implements Runnable {
         private IndexWriter iwriter;            // global IndexWriter for the inverted index
@@ -58,11 +58,34 @@ public class PoolIndexing {
         @Override
         public void run() {
             for (Metadata article : metadataSlice) {
-                // Create the document and add the docID, title and abstract of the metadata row as Lucene Fields
+
                 Document doc = new Document();
+
+                // Add article UID as stored field
                 doc.add(new StoredField("docID", article.cordUid()));
-                doc.add(new TextField("title", article.title(), Field.Store.YES));
-                doc.add(new TextField("abstract", article.abstrac(), Field.Store.YES));
+
+                // Add title information
+                FieldType titleFieldType = new FieldType();
+                titleFieldType.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS);
+                titleFieldType.setStored(true);
+                titleFieldType.setTokenized(true);
+                titleFieldType.setStoreTermVectors(true);
+                doc.add(new Field("title", article.title(), titleFieldType));
+
+                // Add abstract information
+                FieldType abstractFieldType = new FieldType();
+                abstractFieldType.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS);
+                abstractFieldType.setStored(true);
+                abstractFieldType.setTokenized(true);
+                abstractFieldType.setStoreTermVectors(true);
+                doc.add(new Field("abstract", article.abstrac(), abstractFieldType));
+
+                // Add document embedding
+                if (docEmbeddings.keySet().contains(article.cordUid())) {
+                    float[] docEmbedding = docEmbeddings.get(article.cordUid());
+                    doc.add(new KnnVectorField("embedding", docEmbedding));
+                }
+
 
                 // Read PMC and PDF paths (check README-iteration1 to understand this block of code)
                 List<Path> pdfPaths = article.pdfFiles().stream().map(pdfPath -> POOL_COLLECTION_PATH.resolve(pdfPath)).collect(Collectors.toList());
@@ -77,11 +100,21 @@ public class PoolIndexing {
                     parsedArticle = new ParsedArticle("", "");
                 }
 
-                // Save body and authors
+                // Add body text
                 FieldType bodyFieldType = new FieldType();
                 bodyFieldType.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS);
+                bodyFieldType.setStored(false);
+                bodyFieldType.setTokenized(true);
+                bodyFieldType.setStoreTermVectors(true);
                 doc.add(new Field("body", parsedArticle.body(), bodyFieldType));
-                doc.add(new TextField("authors", parsedArticle.authors(), Field.Store.YES));
+
+                // Add authors
+                FieldType authorsFieldType = new FieldType();
+                authorsFieldType.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS);
+                authorsFieldType.setStored(true);
+                authorsFieldType.setTokenized(true);
+                authorsFieldType.setStoreTermVectors(false);
+                doc.add(new Field("authors", parsedArticle.authors(), authorsFieldType));
 
                 // Write the document in the index
                 try {
@@ -147,7 +180,7 @@ public class PoolIndexing {
         // End the executor
         executor.shutdown();
         try {
-            executor.awaitTermination(10, TimeUnit.MINUTES);
+            executor.awaitTermination(20, TimeUnit.MINUTES);
         } catch (final InterruptedException e) {
             e.printStackTrace();
             System.exit(-2);
@@ -166,7 +199,10 @@ public class PoolIndexing {
         }
     }
 
-    public void main() {
+    public static void main(String[] args) {
+        // Read document embeddings
+        docEmbeddings = readDocEmbeddingsFloating();
+
         PoolIndexing pool = new PoolIndexing();
         pool.launch();
     }

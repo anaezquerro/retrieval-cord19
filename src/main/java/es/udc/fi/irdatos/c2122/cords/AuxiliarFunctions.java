@@ -1,6 +1,7 @@
 package es.udc.fi.irdatos.c2122.cords;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.math3.linear.ArrayRealVector;
 
 import java.io.File;
 import java.io.IOException;
@@ -34,6 +35,23 @@ public class AuxiliarFunctions {
             }
         }
         return indexes;
+    }
+
+
+    public static ArrayRealVector floatArray2RealVector(float[] arr) {
+        ArrayRealVector v = new ArrayRealVector(arr.length);
+        for (int i=0; i < arr.length; i++) {
+            v.setEntry(i, arr[i]);
+        }
+        return v;
+    }
+
+    public static float[] realVector2floatArray(ArrayRealVector v) {
+        float[] arr = new float[v.getDimension()];
+        for (int i = 0; i < v.getDimension(); i++) {
+            arr[i] = (float) v.getEntry(i);
+        }
+        return arr;
     }
 
 }

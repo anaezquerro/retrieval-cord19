@@ -22,7 +22,7 @@ import org.apache.commons.math3.linear.ArrayRealVector;
 /**
  * Implements reading and parsing methods for TREC-COVID Collection.
  */
-public class CollectionReader {
+public class CollectionReader<publc> {
     // Path global variables
     public static final Path DEFAULT_COLLECTION_PATH = Paths.get("2020-07-16");
     public static String METADATA_FILENAME = "metadata.csv";
@@ -56,6 +56,7 @@ public class CollectionReader {
         public String body() {return body;}
         public String authors() {return authors;}
     }
+
 
     /**
      * Parses the content of the JSON files with the given structure in the class Article.java
@@ -153,6 +154,27 @@ public class CollectionReader {
             Integer topicID = Integer.parseInt(query.getKey());
             Double[] embeddings = query.getValue().toArray(new Double[query.getValue().size()]);
             queryEmbeddings.put(topicID, new ArrayRealVector(embeddings));
+        }
+        return queryEmbeddings;
+    }
+
+    public static final Map<Integer, float[]> readQueryEmbeddingsFloating() {
+        Map<String, List<Double>> queryEmbeddingsString = null;
+        try {
+            queryEmbeddingsString = new ObjectMapper().readValue(
+                    DEFAULT_COLLECTION_PATH.resolve(QUERY_EMBEDDINGS_FILENAME).toFile(), Map.class);
+        } catch (IOException e) {
+            e.printStackTrace();
+            System.out.println("IOException while reading query embeddings JSON file");
+        }
+        Map<Integer, float[]> queryEmbeddings = new HashMap<>();
+        for (Map.Entry<String, List<Double>> query : queryEmbeddingsString.entrySet()) {
+            Integer topicID = Integer.parseInt(query.getKey());
+            float[] embeddings = new float[query.getValue().size()];
+            for (int i=0; i < EMBEDDINGS_DIMENSIONALITY; i++) {
+                embeddings[i] = (float) (double) query.getValue().get(i);
+            }
+            queryEmbeddings.put(topicID, embeddings);
         }
         return queryEmbeddings;
     }
@@ -255,6 +277,38 @@ public class CollectionReader {
             queryDocSimilarities.put(i, docSimilarities);
         }
         return queryDocSimilarities;
+    }
+
+    public static Map<String, ArrayRealVector> readDocEmbeddings() {
+        Stream<String> stream = streamDocEmbeddings();
+        Map<String, ArrayRealVector> docEmbeddings = new HashMap<>();
+        for (Iterator<String> it = stream.iterator(); it.hasNext(); ) {
+            String line = it.next();
+            String[] lineContent = line.split(",");
+            String docID = lineContent[0];
+            lineContent = Arrays.copyOfRange(lineContent, 1, lineContent.length);
+            ArrayRealVector embedding = new ArrayRealVector(Arrays.stream(lineContent)
+                    .mapToDouble(Double::parseDouble).toArray());
+            docEmbeddings.put(docID, embedding);
+        }
+        return docEmbeddings;
+    }
+
+    public static Map<String, float[]> readDocEmbeddingsFloating() {
+        Stream<String> stream = streamDocEmbeddings();
+        Map<String, float[]> docEmbeddings = new HashMap<>();
+        for (Iterator<String> it = stream.iterator(); it.hasNext(); ) {
+            String line = it.next();
+            String[] lineContent = line.split(",");
+            String docID = lineContent[0];
+            lineContent = Arrays.copyOfRange(lineContent, 1, lineContent.length);
+            float[] embedding = new float[lineContent.length];
+            for (int i = 0; i < lineContent.length; i++) {
+                embedding[i] = (float) Float.parseFloat(lineContent[i]);
+            }
+            docEmbeddings.put(docID, embedding);
+        }
+        return docEmbeddings;
     }
 
 }

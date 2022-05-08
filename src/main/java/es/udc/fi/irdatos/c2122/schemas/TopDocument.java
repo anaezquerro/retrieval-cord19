@@ -7,11 +7,22 @@ public class TopDocument {
     private double score;
     private final int topicID;
     private ArrayRealVector embedding;
+    private String title;
+    private String authors;
+
 
     public TopDocument(String docID, double score, int topicID) {
         this.docID = docID;
         this.score = score;
         this.topicID = topicID;
+    }
+
+    public TopDocument(String docID, double score, int topicID, String title, String authors) {
+        this.docID = docID;
+        this.score = score;
+        this.topicID = topicID;
+        this.title = title;
+        this.authors = authors;
     }
 
     public String toString() {
@@ -32,9 +43,7 @@ public class TopDocument {
         return docID;
     }
 
-    public int topicID() {
-        return topicID;
-    }
+    public int topicID() {return topicID;}
 
     public double score() {
         return score;
@@ -43,4 +52,7 @@ public class TopDocument {
     public void setScore(double newScore) {
         score = newScore;
     }
+
+    public String title() {return title;}
+    public String authors() {return authors;}
 }

@@ -5,11 +5,13 @@ import es.udc.fi.irdatos.c2122.schemas.TopDocumentOrder;
 import es.udc.fi.irdatos.c2122.schemas.Topics;
 import org.apache.commons.math3.linear.ArrayRealVector;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
+import org.apache.lucene.document.Document;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.queryparser.classic.MultiFieldQueryParser;
 import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.queryparser.classic.QueryParser;
+import org.apache.lucene.queryparser.xml.builders.BooleanQueryBuilder;
 import org.apache.lucene.search.*;
 
 import java.io.IOException;
@@ -18,8 +20,9 @@ import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static es.udc.fi.irdatos.c2122.cords.AuxiliarFunctions.floatArray2RealVector;
+import static es.udc.fi.irdatos.c2122.cords.AuxiliarFunctions.realVector2floatArray;
 import static es.udc.fi.irdatos.c2122.cords.CollectionReader.*;
-import static es.udc.fi.irdatos.c2122.cords.ObtainTransitionMatrix.computePageRank;
 
 public class QueryTopics {
     private static Topics.Topic[] topics;
@@ -41,24 +44,31 @@ public class QueryTopics {
         if (typeQuery == 0) {
             return simpleQuery();
         } else if (typeQuery == 1) {
-            return phraseQuery();
+            return knnRocchioQuery(0.5F, 0.4F, 0.1F);
         } else if (typeQuery == 2) {
-            return embeddingsQuery();
-        } else if (typeQuery == 3) {
-            return embeddingsQueryRocchio(1F, 0.7F, 0.9F);
-        } else if (typeQuery == 4) {
-            return queryPageRank();
-        } else {
+            return cosineSimilarityPageRank(0.0F, 1000);
+        }
+        else {
             System.out.println("No queries have been applied");
         }
         return null;
 
     }
 
+    /**
+     * Coerces the top documents provided by Lucene to a list of Top Documents in which we store
+     * the docID, the score obtained in the topic query, the title and the authors.
+     * @param topDocs Top documents provided by Lucene with a specific query.
+     * @param topicID Topic number from which the query was obtained.
+     * @returns List of Top Document class.
+     */
     private static List<TopDocument> coerce(TopDocs topDocs, int topicID) {
         List<TopDocument> topDocuments = Arrays.stream(topDocs.scoreDocs).map(x -> {
             try {
-                return new TopDocument(ireader.document(x.doc).get("docID"), x.score, topicID);
+                Document doc = ireader.document(x.doc);
+                TopDocument topDocument = new TopDocument(doc.get("docID"), x.score, topicID,
+                        doc.get("title"), doc.get("authors"));
+                return topDocument;
             } catch (IOException e) {
                 e.printStackTrace();
                 return null;
@@ -69,21 +79,19 @@ public class QueryTopics {
 
     /**
      * Performs a multifield weighted query in the main fields: title, abstract and body.
-     *
-     * @returns Map object where topic IDs are the keys with they corresponding set of relevant documents.
+     * @returns Map object where topic IDs are the keys with their corresponding set of relevant documents.
      */
     private static Map<Integer, List<TopDocument>> simpleQuery() {
-        // Create the MultiField Query
-        Map<String, Float> fields = Map.of("title", (float) 0.3, "abstract", (float) 0.4, "body", (float) 0.3);
-        QueryParser parser = new MultiFieldQueryParser(fields.keySet().toArray(new String[0]), new StandardAnalyzer(), fields);
-
-        Query query;
         Map<Integer, List<TopDocument>> topicsTopDocs = new HashMap<>();
+
+
+        // Create MultiField parser with per field weights
+        Map<String, Float> fields = Map.of("title", (float) 0.3, "abstract", (float) 0.5, "body", (float) 0.3);
+        QueryParser parser = new MultiFieldQueryParser(fields.keySet().toArray(new String[0]), new StandardAnalyzer(), fields);
 
         // Loop for each topic to extract the topicID and make the query
         for (Topics.Topic topic : topics) {
-
-            // Firstly make the query with the query topic
+            Query query;
             try {
                 query = parser.parse(topic.query());
             } catch (ParseException e) {
@@ -108,9 +116,105 @@ public class QueryTopics {
             topicsTopDocs.put(topic.number(), topDocuments);
         }
 
+        return obtainTopN(topicsTopDocs);
+    }
+
+
+    private Map<Integer, List<TopDocument>> knnSimpleQuery(Map<Integer, float[]> queryEmbeddings) {
+        // Create the MultiField Query
+        Map<String, Float> fields = Map.of("title", (float) 0.7, "abstract", (float) 0.5, "body", (float) 0.3);
+        QueryParser parser = new MultiFieldQueryParser(fields.keySet().toArray(new String[0]), new StandardAnalyzer(), fields);
+        Map<Integer, List<TopDocument>> topicsTopDocs = new HashMap<>();
+
+        // Loop for each topic
+        for (Topics.Topic topic : topics) {
+            BooleanQuery.Builder booleanQueryBuilder = new BooleanQuery.Builder();
+
+            Query query;
+            try {
+                query = parser.parse(topic.query());
+            } catch (ParseException e) {
+                System.out.println("ParseException while constructing the query for the topic " + topic.number());
+                e.printStackTrace();
+                return null;
+            }
+            booleanQueryBuilder.add(query, BooleanClause.Occur.SHOULD);
+
+            // Add KNN query
+            float[] queryEmbedding = queryEmbeddings.get(topic.number());
+
+            // Parse query
+            Query knnQuery = new KnnVectorQuery("embedding", queryEmbedding, n);
+            booleanQueryBuilder.add(knnQuery, BooleanClause.Occur.SHOULD);
+
+            // build boolean query
+            BooleanQuery booleanQuery = booleanQueryBuilder.build();
+
+            // Obtain topDocs
+            TopDocs topDocs;
+            try {
+                topDocs = isearcher.search(booleanQuery, n);
+            } catch (IOException e) {
+                System.out.println("IOException while searching documents of the topic ");
+                e.printStackTrace();
+                return null;
+            }
+
+            // Finally, add the top documents to the map object
+            System.out.println(topDocs.totalHits + " results for the KNN query [topic=" + topic.number() + "]");
+            List<TopDocument> topDocuments = coerce(topDocs, topic.number());
+            topicsTopDocs.put(topic.number(), topDocuments);
+        }
         return topicsTopDocs;
     }
 
+    /**
+     * Computes KNN-algorithm (where k=n) using documents and query embeddings of the TREC-COVID collection and re-ranks
+     * computing again the query embeddings using Rocchio-Algorithm.
+     * @returns Top Documents list for each topic.
+     */
+    private Map<Integer, List<TopDocument>> knnRocchioQuery(float alpha, float beta, float gamma) {
+        // Compute first results
+        Map<Integer, float[]> initialQueryEmbeddings = readQueryEmbeddingsFloating();
+        Map<Integer, List<TopDocument>> initialResults = knnSimpleQuery(initialQueryEmbeddings);
+
+        // Recompute query embeddings
+        Map<Integer, ArrayRealVector> initialQueryEmbeddingsVector = initialQueryEmbeddings.entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, x -> floatArray2RealVector(x.getValue())));
+        PoolRocchio poolRocchio = new PoolRocchio(initialResults, initialQueryEmbeddingsVector, alpha, beta, gamma);
+        poolRocchio.launch();
+
+        Map<Integer, ArrayRealVector> newQueryEmbeddings = poolRocchio.getNewQueryEmbeddings();
+        Map<Integer, float[]> newQueryEmbeddingsFloat = newQueryEmbeddings.entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, x -> realVector2floatArray(x.getValue())));
+
+        // Recompute query
+        return knnSimpleQuery(newQueryEmbeddingsFloat);
+        }
+
+    private Map<Integer, List<TopDocument>> cosineSimilarityPageRank(float alpha, int iterations) {
+        Map<Integer, ArrayRealVector> queryEmbeddings = readQueryEmbeddings();
+
+        // Obtain initial results
+        PoolCosineSimilarity pool = new PoolCosineSimilarity(queryEmbeddings);
+        Map<Integer, List<TopDocument>> initialResults = pool.computeSimilarity();
+        initialResults = obtainTopN(initialResults);
+
+        // Compute again using page rank
+        ObtainTransitionMatrix poolPageRank = new ObtainTransitionMatrix(isearcher, ireader, initialResults,
+                alpha, iterations);
+        Map<Integer, List<TopDocument>> newResults = poolPageRank.launch();
+        return newResults;
+    }
+
+    private static Map<Integer, List<TopDocument>> obtainTopN(Map<Integer, List<TopDocument>> topicsTopDocs) {
+        topicsTopDocs = topicsTopDocs.entrySet().stream().peek(
+                result ->  {
+                    result.setValue(result.getValue().subList(0, n));
+                }
+        ).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        return topicsTopDocs;
+    }
 
     private Map<Integer, List<TopDocument>> phraseQuery() {
         Map<Integer, List<TopDocument>> topicsTopDocs = new HashMap<>();
@@ -181,61 +285,6 @@ public class QueryTopics {
             topicsTopDocs.put(topic.number(), topDocuments);
         }
 
-        return topicsTopDocs;
-    }
-
-
-    private Map<Integer, List<TopDocument>> embeddingsQuery() {
-        Map<Integer, List<TopDocument>> topicsTopDocs = readCosineSimilarities("cosineSimilarity", true);
-        return obtainTopN(topicsTopDocs);
-    }
-
-    private Map<Integer, List<TopDocument>> embeddingsQueryRocchio(float alpha, float beta, float gamma) {
-        // Obtain query embeddings
-        Map<Integer, ArrayRealVector> queryEmbeddings = readQueryEmbeddings();
-
-        // Obtain results by cosine similarity between embeddings
-        Map<Integer, List<TopDocument>> initialResults = embeddingsQuery();
-
-        // Compute new queries based on Rocchio Algorithm
-        PoolRocchio poolRocchio = new PoolRocchio(initialResults, queryEmbeddings, alpha, beta, gamma);
-        poolRocchio.launch();
-        Map<Integer, List<TopDocument>> newResults = poolRocchio.getNewSimilarities();
-
-        return obtainTopN(newResults);
-    }
-
-    private Map<Integer, List<TopDocument>> queryPageRank() {
-        // Obtain initial results
-        Map<Integer, List<TopDocument>> initialResults = simpleQuery();
-        Map<Integer, List<TopDocument>> newResults = new HashMap<>();
-
-        // Compute page rank for each topic
-        for (Topics.Topic topic : topics) {
-            List<TopDocument> initialDocuments = initialResults.get(topic.number());
-            ArrayRealVector pageRank = computePageRank(initialDocuments, 0.5, 1000);
-
-            // Multiply the initial score for pageRank value
-            List<TopDocument> newDocuments = new ArrayList<>();
-            for (int i=0; i < initialDocuments.size(); i++) {
-                TopDocument initialDocument = initialDocuments.get(i);
-                newDocuments.add(new TopDocument(initialDocument.docID(),
-                        initialDocument.score() * pageRank.getEntry(i),
-                        topic.number()));
-            }
-            Collections.sort(newDocuments, new TopDocumentOrder());
-            newResults.put(topic.number(), newDocuments);
-        }
-
-        return newResults;
-    }
-
-    private Map<Integer, List<TopDocument>> obtainTopN(Map<Integer, List<TopDocument>> topicsTopDocs) {
-        topicsTopDocs = topicsTopDocs.entrySet().stream().peek(
-                result ->  {
-                    result.setValue(result.getValue().subList(0, n));
-                }
-        ).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
         return topicsTopDocs;
     }
 }

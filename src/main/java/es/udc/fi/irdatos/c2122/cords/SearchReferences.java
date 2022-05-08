@@ -29,10 +29,10 @@ import static es.udc.fi.irdatos.c2122.cords.AuxiliarFunctions.deleteFolder;
 import static es.udc.fi.irdatos.c2122.cords.CollectionReader.readMetadata;
 
 public class SearchReferences {
-    private static String REFERENCES_FOLDERNAME = "references/";
+    private static String REFERENCES_FOLDERNAME = "references";
     private static String REFERENCES_FILENAME = "references.txt";
     private static String INDEX_FOLDERNAME = "PageRankIndex";
-    private static Similarity similarity = new LMJelinekMercerSimilarity(0.1F);
+    private static Similarity similarity = new BM25Similarity();
 
     private static class WorkerSearcher implements Runnable {
         private List<String> linesWrite;
@@ -58,11 +58,10 @@ public class SearchReferences {
         @Override
         public void run() {
             // Create file in which store references
-            deleteFolder(REFERENCES_FOLDERNAME);
-            String filename = REFERENCES_FOLDERNAME + "results " + workerID + ".txt";
+            String filename = "results " + workerID + ".txt";
 
             FileWriter writer;
-            try {writer = new FileWriter(filename); } catch (Exception e) {e.printStackTrace();return;}
+            try {writer = new FileWriter(Paths.get(REFERENCES_FOLDERNAME).resolve(filename).toFile()); } catch (Exception e) {e.printStackTrace();return;}
 
             for (Metadata rowMetadata : metadataSlice) {
                 // 1. Read article
@@ -118,7 +117,7 @@ public class SearchReferences {
                     booleanQueryBuilder.add(query, BooleanClause.Occur.SHOULD);
 
                     // Query for reference authors
-                    for (int i = 0; i < Math.min(reference.authors().size(), 20); i++) {
+                    for (int i = 0; i < Math.min(reference.authors().size(), 5); i++) {
                         Article.Author author = reference.authors().get(i);
                         if (author.last().length() == 0) {
                             continue;
@@ -148,7 +147,7 @@ public class SearchReferences {
 
                     // Make the query
                     TopDocs topDocs;
-                    try { topDocs = wsearcher.search(booleanQuery, 5);}
+                    try { topDocs = wsearcher.search(booleanQuery, 3);}
                     catch (IOException e) {e.printStackTrace();return;}
 
                     // Save results
@@ -167,6 +166,8 @@ public class SearchReferences {
     }
 
     private static void queryReferences() {
+        deleteFolder(REFERENCES_FOLDERNAME);
+        new File(REFERENCES_FOLDERNAME).mkdirs();
         // Create IndexSearcher and IndexReader
         ReaderSearcher creation = new ReaderSearcher(Paths.get(INDEX_FOLDERNAME), new BM25Similarity());
         IndexReader ireader = creation.reader();
@@ -192,7 +193,7 @@ public class SearchReferences {
         // End the executor
         executor.shutdown();
         try {
-            executor.awaitTermination(1, TimeUnit.HOURS);
+            executor.awaitTermination(2, TimeUnit.HOURS);
         } catch (final InterruptedException e) {
             e.printStackTrace();
             System.exit(-2);
@@ -201,7 +202,7 @@ public class SearchReferences {
 
     public static void mergeResults(int numCores) {
         FileWriter mergeWriter;
-        try {mergeWriter = new FileWriter(REFERENCES_FOLDERNAME + REFERENCES_FILENAME); }
+        try {mergeWriter = new FileWriter(Paths.get(REFERENCES_FOLDERNAME).resolve(REFERENCES_FILENAME).toFile()); }
         catch (Exception e) {e.printStackTrace();return;}
 
         // Write results
@@ -210,7 +211,7 @@ public class SearchReferences {
 
             Stream<String> stream = null;
             try {
-                stream = Files.lines(Paths.get(filename));
+                stream = Files.lines(Paths.get(REFERENCES_FOLDERNAME).resolve(filename));
             } catch (IOException e) {
                 e.printStackTrace();
                 return;
@@ -232,6 +233,11 @@ public class SearchReferences {
             System.out.println("IOException while closing the txt writer");
             e.printStackTrace();
         }
+    }
+
+    public static void main(String[] args) {
+//        queryReferences();
+        mergeResults(8);
     }
 
 

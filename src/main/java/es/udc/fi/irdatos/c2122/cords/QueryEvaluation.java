@@ -29,7 +29,7 @@ import static es.udc.fi.irdatos.c2122.cords.CollectionReader.readTopicSet;
  * of each topic.
  */
 public class QueryEvaluation {
-    private static Path INDEX_PATH = Paths.get("Index-StandardAnalyzer-LM");
+    private static Path INDEX_PATH = Paths.get("Index-StandardAnalyzer");
     private static Similarity similarity = new LMJelinekMercerSimilarity(0.1F);
 
     /**

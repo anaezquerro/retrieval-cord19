@@ -18,7 +18,11 @@ public record Article(Metadata metadata, List<Content> body_text, Map<String, Re
     public static record Metadata(List<Author> authors) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public static record Content(String text, String section) {}
+    public static record Content(String text, List<Cite> cite_spans, String section) {
+
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public static record Cite(String ref_id) {}
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static record Author(String first, List<String> middle, String last) {}

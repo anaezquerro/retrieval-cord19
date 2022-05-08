@@ -14,6 +14,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
+import static es.udc.fi.irdatos.c2122.cords.CollectionReader.readDocEmbeddings;
 import static es.udc.fi.irdatos.c2122.cords.CollectionReader.streamDocEmbeddings;
 
 public class PoolRocchio {
@@ -126,16 +127,7 @@ public class PoolRocchio {
     public void launch() {
         System.out.println("Computing Rocchio with alpha=" + alpha + ", beta=" + beta + ", gamma=" + gamma);
         // Read all documents embeddings
-        Stream<String> stream = streamDocEmbeddings();
-        for (Iterator<String> it = stream.iterator(); it.hasNext(); ) {
-            String line = it.next();
-            String[] lineContent = line.split(",");
-            String docID = lineContent[0];
-            lineContent = Arrays.copyOfRange(lineContent, 1, lineContent.length);
-            ArrayRealVector embedding = new ArrayRealVector(Arrays.stream(lineContent)
-                    .mapToDouble(Double::parseDouble).toArray());
-            docEmbeddings.put(docID, embedding);
-        }
+        docEmbeddings = readDocEmbeddings();
 
         final int numCores = Runtime.getRuntime().availableProcessors();
         System.out.println("Computing Rocchio Similarity with " + numCores + " cores");
