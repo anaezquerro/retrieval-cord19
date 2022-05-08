@@ -4,29 +4,34 @@
 En este documento se describen las tres _queries_ implementadas para la tercera iteración del *assignment* de 
 la asignatura Recuperación de la Información.
 
-## Aproximación 1. *Multifield Weighted Query*
+## Aproximación 1. *Boolean Query with Probabilistic ReRanking* 
 
-Se basa en utilizar el _topic query_ y parsearlo con la clase `QueryParser` para obtener un _score_ ponderado 
-en cada _field_ de los documentos indexados. Los _fields_ usados para fueron el título (`title`), abstract (`abstract`) 
-y cuerpo del texto (`body`) y sus pesos fueron respectivamente 0.5, 0.3 y 0.5. Estos pesos _no_ han sido escogidos por 
-ser los óptimos, sino por ofrecer un mejor resultado para k=10. Se ha comprobado que para sacar provecho de estos pesos, 
-una buena estrategia es cambiar las ponderaciones a medida que aumenta el k de la evaluación. A medida que k crece, 
-es más favorable aumentar el peso del título y del abstract que el del cuerpo del artículo.
+Se basa en utilizar la _topic query_ y parsearlo con la clase `QueryParser` sobre los _fields_ `title`, 
+`abstract` y `body`. Una vez obtenidos los resultados iniciales, se asume que los _n_ primeros documentos
+(ordenados por su _score_) son relevantes y se realiza _reranking_ añadiendo a la _query_ nuevos 
+términos basado en el cálculo de las probabilidades de su  aparición en documentos relevantes. 
+La implementación para estimar la probabilidad viene en la clase `ProbabilityFeedback` y está 
+inspirada en los _odds ratio_ de 
+[_Intoduction to Information Retrieval. Probabilistic information retrieval_](https://nlp.stanford.edu/IR-book/html/htmledition/probabilistic-information-retrieval-1.html).
 
-Esta _query_ está implementada en la función `simpleQuer()` de la clase `QueryTopics`. Sus resultados fueron (para los 
-pesos citados):
 
-- `MAP@k=10`: 0.44599998
-- `MAP@k=100`: 0.06079999
-- `MAP@k=1000`:  0.012521271
+Esta _query_ está implementada en la función `probabilisticQuery()` de la clase `QueryTopics`. 
+
+- `n=100: MAP@k=10`: 0.45599997
+- `n=1000: MAP@k=100`: 0.063999996
+- `n=1000: MAP@k=1000`:  0.0127953105
 
 
 ## Aproximación 2. *Multifield Weighted Query* con el algoritmo KNN corregido con Rocchio
 
-Se basa ne utilizar la misma `simpleQuery()` de la primera aproximación y añadiendo la información de los *embeddings* 
+Se basa ne utilizar la función `simpleQuery()` de la segunda iteración y añadiendo la información de los *embeddings* 
 con el algoritmo KNN. Con los resultados iniciales, se computa el algoritmo de Rocchio para obtener nuevos *embeddings* 
 para las _queries_ y se vuelve a repetir el proceso. La implementación se encuentra en la función `knnRocchioQuery()` de 
 la clase `QueryTopics`.
+
+Los pesos asignados a la _multifield query_ de `simpleQuery()` **no** son pesos óptimos. Se escogieron por 
+dar unos resultados aceptables y, en base a varios experimentos, se determinó que es favorable aumentar 
+el peso del _field_ `title` a medida que _n_ y _k_ crecen.
 
 Para calcular Rocchio se usa una clase adicional (`PoolRocchio`) que paraleliza el cálculo de un nuevo vector para la 
 _query_ sobre todos los tópicos. Cabe desetacar que este algoritmo usa 3 parámetros que no han sido explorados (por 
@@ -46,9 +51,9 @@ optimista). En caso de no estarlo  no mejorará los resultados.
 
 Los resultados obtenidos fueron:
 
-- `MAP@k=10`: 0.42399997
-- `MAP@k=100`: 0.066199996
-- `MAP@k=1000`:  0.013394228
+- `n=100: MAP@k=10`: 0.42399997
+- `n=1000: MAP@k=100`: 0.066199996
+- `n=1000: MAP@k=1000`:  0.013394228
 
 
 ## Aproximación 3. *Multifield Weighted Query* y *Cosine Similarity* con *Page Ranking*
@@ -85,6 +90,6 @@ _n_ documentos obtenidos. Si _n_ es muy grande, el tiempo de cómputo será muy 
 
 Los resultados obtenidos fueron:
 
-- `MAP@k=10`:  0.41799998
-- `MAP@k=100`: 0.058799986
-- `MAP@k=1000`:  0.0056915004
+- `n=100: MAP@k=10`:  0.41799998
+- `n=1000: MAP@k=100`: 0.058799986
+- `n=1000: MAP@k=1000`:  0.0056915004

@@ -11,14 +11,11 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.queryparser.classic.MultiFieldQueryParser;
 import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.queryparser.classic.QueryParser;
-import org.apache.lucene.queryparser.xml.builders.BooleanQueryBuilder;
 import org.apache.lucene.search.*;
 
 import java.io.IOException;
-import java.lang.reflect.Array;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static es.udc.fi.irdatos.c2122.cords.AuxiliarFunctions.floatArray2RealVector;
 import static es.udc.fi.irdatos.c2122.cords.AuxiliarFunctions.realVector2floatArray;
@@ -42,7 +39,7 @@ public class QueryTopics {
 
         // Make the Query basd on the typeQuery
         if (typeQuery == 0) {
-            return simpleQuery();
+            return probabilisticQuery();
         } else if (typeQuery == 1) {
             return knnRocchioQuery(0.5F, 0.4F, 0.1F);
         } else if (typeQuery == 2) {
@@ -77,14 +74,9 @@ public class QueryTopics {
         return topDocuments;
     }
 
-    /**
-     * Performs a multifield weighted query in the main fields: title, abstract and body.
-     * @returns Map object where topic IDs are the keys with their corresponding set of relevant documents.
-     */
+
     private static Map<Integer, List<TopDocument>> simpleQuery() {
         Map<Integer, List<TopDocument>> topicsTopDocs = new HashMap<>();
-
-
         // Create MultiField parser with per field weights
         Map<String, Float> fields = Map.of("title", (float) 0.3, "abstract", (float) 0.5, "body", (float) 0.3);
         QueryParser parser = new MultiFieldQueryParser(fields.keySet().toArray(new String[0]), new StandardAnalyzer(), fields);
@@ -119,6 +111,72 @@ public class QueryTopics {
         return obtainTopN(topicsTopDocs);
     }
 
+    private static List<Query> parseQueries(String[] fields, String[] textQueries) {
+        List<Query> queries = new ArrayList<>();
+        for (int i = 0; i < fields.length; i++) {
+            QueryParser parser = new QueryParser(fields[i], new StandardAnalyzer());
+            Query query;
+            try {
+                query = parser.parse(textQueries[i]);
+            } catch (ParseException e) {e.printStackTrace(); return null; }
+            queries.add(query);
+        }
+        return queries;
+    }
+
+    private static List<TopDocument> booleanQueries(List<Query> queries, int topicID) {
+        BooleanQuery.Builder booleanQueryBuilder = new BooleanQuery.Builder();
+
+        for (Query query : queries ) {
+            booleanQueryBuilder.add(query, BooleanClause.Occur.SHOULD);
+        }
+
+        BooleanQuery booleanQuery = booleanQueryBuilder.build();
+
+        TopDocs topDocs;
+        try {
+            topDocs = isearcher.search(booleanQuery, n);
+        } catch (IOException e) {
+            System.out.println("IOException while searching documents of the topic ");
+            e.printStackTrace();
+            return null;
+        }
+
+        List<TopDocument> topDocuments = coerce(topDocs, topicID);
+        return topDocuments;
+    }
+
+    private static Map<Integer, List<TopDocument>> probabilisticQuery() {
+        Map<Integer, List<TopDocument>> initialResults = new HashMap<>();
+
+        // Compute the first query
+        for (Topics.Topic topic : topics) {
+            String[] initialTextQueries = new String[] {topic.query(), topic.query(), topic.query()};
+            List<Query> queries = parseQueries(new String[] {"title", "abstract", "body"}, initialTextQueries);
+
+            // Create boolean query
+            List<TopDocument> topDocuments = booleanQueries(queries, topic.number());
+            initialResults.put(topic.number(), topDocuments);
+        }
+        ProbabilityFeedback probs = new ProbabilityFeedback(ireader, initialResults, 1);
+        Map<Integer, List<String>> newTitleTerms = probs.getProbabilities("title");
+        Map<Integer, List<String>> newAbstractTerms = probs.getProbabilities("abstract");
+
+        Map<Integer, List<TopDocument>> topicsTopDocs = new HashMap<>();
+        for (Topics.Topic topic : topics) {
+            String[] newTextQueries = new String[] {
+                    topic.query() + " " + String.join(" ", newTitleTerms.get(topic.number())),
+                    topic.query()  + " " + String.join(" ", newAbstractTerms.get(topic.number())),
+                    topic.query()
+            };
+            List<Query> queries = parseQueries(new String[] {"title", "abstract", "body"}, newTextQueries);
+
+            // Create boolean query
+            List<TopDocument> topDocuments = booleanQueries(queries, topic.number());
+            topicsTopDocs.put(topic.number(), topDocuments);
+        }
+        return topicsTopDocs;
+    }
 
     private Map<Integer, List<TopDocument>> knnSimpleQuery(Map<Integer, float[]> queryEmbeddings) {
         // Create the MultiField Query
