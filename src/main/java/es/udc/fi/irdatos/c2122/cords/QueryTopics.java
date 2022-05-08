@@ -197,7 +197,7 @@ public class QueryTopics {
 
         // Obtain initial results
         PoolCosineSimilarity pool = new PoolCosineSimilarity(queryEmbeddings);
-        Map<Integer, List<TopDocument>> initialResults = pool.computeSimilarity();
+        Map<Integer, List<TopDocument>> initialResults = CollectionReader.readCosineSimilarities("cosineSimilarity", true);
         initialResults = obtainTopN(initialResults);
 
         // Compute again using page rank

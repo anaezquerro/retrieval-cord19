@@ -304,7 +304,7 @@ public class ObtainTransitionMatrix {
         // End the executor
         executor.shutdown();
         try {
-            executor.awaitTermination(1, TimeUnit.HOURS);
+            executor.awaitTermination(3, TimeUnit.HOURS);
         } catch (final InterruptedException e) {
             e.printStackTrace();
             System.exit(-2);
