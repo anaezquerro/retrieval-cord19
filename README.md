@@ -1,100 +1,93 @@
-# GCED - Recuperación de Información - Assignment
 
-Template for the assignment of the Information Retrieval course - GCED - UDC
+# GCED - Information Retrieval (Iteración 3)
 
-The template includes code examples for reading CSV files and JSON files
+En este documento se describen las tres _queries_ implementadas para la tercera iteración del *assignment* de 
+la asignatura Recuperación de la Información.
 
-## Java Records
+## Aproximación 1. *Multifield Weighted Query*
 
-Records are a special kind of classes introduced in Java 14. They allow to define data aggregates (classes whose whole purpose is to only hold data) with much less code. Records classes are **immutable**, define sensible implementations for the `equals`, `hashCode` and `toString` methods, and a constructor with the same signature as the record header. A record declaration like:
+Se basa en utilizar el _topic query_ y parsearlo con la clase `QueryParser` para obtener un _score_ ponderado 
+en cada _field_ de los documentos indexados. Los _fields_ usados para fueron el título (`title`), abstract (`abstract`) 
+y cuerpo del texto (`body`) y sus pesos fueron respectivamente 0.5, 0.3 y 0.5. Estos pesos _no_ han sido escogidos por 
+ser los óptimos, sino por ofrecer un mejor resultado para k=10. Se ha comprobado que para sacar provecho de estos pesos, 
+una buena estrategia es cambiar las ponderaciones a medida que aumenta el k de la evaluación. A medida que k crece, 
+es más favorable aumentar el peso del título y del abstract que el del cuerpo del artículo.
 
-```Java
-record Rectangle(double length, double width) {}
-```
+Esta _query_ está implementada en la función `simpleQuer()` de la clase `QueryTopics`. Sus resultados fueron (para los 
+pesos citados):
 
-Gives as a result a class similar to:
-
-```Java
-class Rectangle {
-  private final double length;
-  private final double width;
-
-  public Rectangle(double length, double width) {
-    this.length = length;
-    this.width = width;
-  }
-
-  public double length() { return length; }
-  public double width() { return width; }
-
-  /* Implementation of equals() compares two record field by field instead of the
-   * default comparison by object identity of the implementation in the base
-   * Object class. implementation of hashCode() is sensible to this change
-   */
-  public boolean equals(Object other) { ... }
-  public int hashCode() { ... }
-
-  /* Implementation of toString() returns a representation that includes the
-   * record name and the values of all the fields
-   */
-  public String toString() { ... }
-}
-```
-
-More information: [Record Classes](https://docs.oracle.com/en/java/javase/17/language/records.html)
-
-The example code makes use of this type of classes for easier definition of data classes to read the files
-
-## Parsing CSV files
-
-To parse CSV files the example code uses the [Jackson data format text][1] module for reading CSV files.
-
-Each row in the CSV file is read into a record [`Movies`](src/main/java/es/udc/fi/irdatos/c2122/movies/Movie.java) with the fields we are interested from the CSV. The record definition uses some Java annotations defined by Jackson to instruct the library how to map the fields from the file to the attributes of the class. These annotations are:
-  - `@JsonIgnoreProperties(ignoreUnknown = true)`: this annotation tells Jackson to ignore fields in the source file not defined in the class. This contrasts with the default behavior of failing to parse the file in that case. In the example CSV there is a column `rating` that has no corresponding field in the `Movie` record. Without this annotation the parsing of the movies file would fail. This annotation applies to the whole class.
-  - `@JsonProperty("imdb_id")`: this annotation tells Jackson to map the field in the source file to the attribute that is annotated. In the sample code the parser will map the contents of the `imdb_id` column to the attribute `imdbId` in the record. This is useful when we want to keep some naming convention in the code that would be broken by the names of the fields in the file, such as this case. The use of this annotation is mandatory if the name of the field is not a valid identifier in Java (e.g. the name of the field is a reserved word in the language)
-
-To parse a file we need to take a couple of steps:
-  - First we need to define the scheme of the file, i.e. the columns it contains and the order in which they appear. In the case of the example CSV, the file has a header row. We can instruct Jackson to use the first row as the schema for the file. We also tell Jackon to use the string `"; "` as the separator of the values of multi-valued fields (in the case of the example, the `cast` field). With this we can parse the values to a List object or an array (we get a `List<String>`  for the cast):
-  ```Java
-  CsvSchema schema = CsvSchema.emptySchema().withHeader().withArrayElementSeparator("; ");
-  ```
-  - With the schema defined we need to create a reader object, that will do the actual parsing. We need to indicate the target class for the data and the schema of the source file:
-  ```Java
-  ObjectReader reader = new CsvMapper().readerFor(Movie.class).with(schema);
-  ```
-  - The reader object provides several methods for reading the data. The template includes a utility method in the `ObjectReaderUtils` class for reading all the rows from a file to a List. This method can be used for the assignment:
-  ```Java
-  // The actual code in the example manages possible exceptions during the process
-  List<Movie> movies = ObjectReaderUtils.readAllValues(moviesPath, reader);
-  ```
-
-More information about this Jackson module, its usage and links to the javadoc can be found at the [GitHub page][1] of the project.
-
-[1]: https://github.com/FasterXML/jackson-dataformats-text/tree/master/csv
+- `MAP@k=10`: 0.44599998
+- `MAP@k=100`: 0.06079999
+- `MAP@k=1000`:  0.012521271
 
 
-## Parsing JSON files
+## Aproximación 2. *Multifield Weighted Query* con el algoritmo KNN corregido con Rocchio
 
-Similar to the case of CSV files, to parse JSON files the example uses the [Jackson databind][2] library.
+Se basa ne utilizar la misma `simpleQuery()` de la primera aproximación y añadiendo la información de los *embeddings* 
+con el algoritmo KNN. Con los resultados iniciales, se computa el algoritmo de Rocchio para obtener nuevos *embeddings* 
+para las _queries_ y se vuelve a repetir el proceso. La implementación se encuentra en la función `knnRocchioQuery()` de 
+la clase `QueryTopics`.
 
-In this particular case the file to be read contains a single object (a movie script in this case). The structure of the data in the JSON includes nesting, with some fields of the root object including other objects. To represent this structure in Java several classes are needed. In particular the target for reading the root object is defined in the `MovieScript` record. This class has an attribute for a List of objects of type `Scene`. This corresponds to the structure of the source file, where the field `scenes` contains a JavaScript array of JavaScript objects. Each of this objects is mapped to the `Scene` class. Moreover, the objects for the scenes contain a field, `contents`, with an array of objects. This is mapped to a `List<SceneContent>`, where `SceneContent` is a third record with the structure of this data.
+- `MAP@k=10`: 0.44599998
+- `MAP@k=100`: 0.06079999
+- `MAP@k=1000`:  0.012521271
 
-The class/record definitions that will hold the data once read can use the same annotation as in the CSV case: `@JsonIgnoreProperties` and `@JsonProperty`. The use cases of these annotations are the same.
+Para calcular Rocchio se usa una clase adicional (`PoolRocchio`) que paraleliza el cálculo de un nuevo vector para la 
+_query_ sobre todos los tópicos. Cabe desetacar que este algoritmo usa 3 parámetros que no han sido explorados (por 
+tanto los valores escogidos no son los óptimos).
 
-Once we have defined the structure of the source file with our class/record definition(s) we can parse the contents of a file using a reader, created in similar fashion as when parsing CSV, but with the apropiarte class. In this case we don't need to define the schame of the file, the class structure is enough for the library. We need to create a reader object:
+- `alpha`: Determina en qué magnitud se quieren tomar los valores de la _query_ inicial (se recomienda que `alpha=1`).
+- `beta`: Determina en qué magnitud se quiere "saltar" al centroide de los documentos relevantes en el espacio de d 
+dimensiones (donde d es el tamaño de los _embeddings_). En la literatura se recomienda un valor alto (`beta=0.75`).
+- `gamma`: Determina en qué magnitu se quiere "alejar" del centroide de los documentos no relevantes en el espacio. 
+En la literatura se recomiendo mantener el _recal_ y por tanto usar una posición más "conservadora" usando un valor 
+pequeño (`gamma=0.1`).
 
-```Java
-// In the sample code the object is stored in a static attribute so it can be reused
-ObjectReader reader = JsonMapper.builder().findAndAddModules().build().readerFor(MovieScript.class);
-```
+**Nota**. Para utilizar Rocchio se hizo pseudo-ranking, asumiendo que los n documentos con mayor _score_ (donde n es 
+el parámetro que introduce el usuario) son relevantes y el resto no lo son. Obsérvese que Rocchio asume que la 
+representación vectorial de los documentos se encuentra "separada" en el espacio d-dimensional (algo bastante 
+optimista). En caso de no estarlo  no mejorará los resultados.
 
-This reader object is of the same type as the one in the CSV case, so it has the same methods. But they are different object, that have been created differently to read different data. As the file in the example contains a single object we can use the `readValue` method to read the file:
+Los resultados obtenidos fueron:
 
-```Java
-// Again, the code in the example handles exceptions in the process
-MovieScript script = reader.readValue(scriptPath.toFile());
-```
+- `MAP@k=10`: 0.42399997
+- `MAP@k=100`: 0.066199996
+- `MAP@k=1000`:  0.013394228
 
-More information on the library, including links to the documentation, can be found at the [GitHub repository][2] page for the library.
 
-[2]: https://github.com/FasterXML/jackson-databind
+## Aproximación 3. *Cosine Similarity* con *Page Ranking*
+
+Para computar esta _query_ fue necesario programar lo equivalente a un *grafo de referencias* etnre los documentos 
+de la colección. Esta implementación se encuentra en la clase `ObtainTransitionMatrix`, con la que se puede obtener 
+la matriz de probabilidades de transición y computar el algoritmo de *page ranking* descrito en [*Introduction to 
+Information Retrieval. Link analysis*](https://nlp.stanford.edu/IR-book/html/htmledition/markov-chains-1.html). 
+
+La implementación de esta _query_ se basa en computar la similitud coseno con los _embeddings_ de los documentos y 
+posterirmente, asumiendo que los n primeros documentos con mayor _score_ son relevantes, utilizar _Page Ranking_ para 
+alterar su _score_ por su ranking de página (vector _x_ descrito en el libro).
+
+Los parámetros que se usan en esta aproximación son:
+
+- `alpha`: Probabilidad de saltar aleatoriamente a un documento a la hora de construir la matriz de transición. Por 
+defecto se utiliza `alpha=0` para obtener una rápida convergencia y que la matriz de transiciones recoja únicamente 
+las relaciones entre documentos, sin introducir componente aleatoria. Este parámetro *no* es óptimo, puede ser 
+cambiado para estudiar su comportamiento en futuras iteraciones.
+- `iterations`: Número de iteraciones máximas para la convergencia de la matriz de transición. Cuando el vector _x_ 
+converge, el algoritmo se detiene. Si la convergencia tarda mucho, se fija un número de iteraciones máximo. Por 
+defecto, `iterations=1000` (se puede alterar pero se recomienda un valor medio para evitar la sobrecarga de recursos).
+
+**Nota**: A la hora de cambiar el _score_ de los documentos según su Page Rank, se utiliza la siguiente fórmula:
+
+$$ \text{PageRank} \cdot \text{initialScore} + \text{initialScore} $$
+
+De esta forma, los resultados obtenidos tendrán en cuenta tanto la similitud coseno de los documentos con las _queries_ 
+como el _page rank_ de los documentos.
+
+**Nota**: Esta aproximación es computacionalmente costosa, pues se tiene que crear el grafo de referencias entre los 
+_n_ documentos obtenidos. Si _n_ es muy grande, el tiempo de cómputo será muy elevado.
+
+Los resultados obtenidos fueron:
+
+- `MAP@k=10`: 0.42399997
+- `MAP@k=100`: 0.066199996
+- `MAP@k=1000`:  0.013394228

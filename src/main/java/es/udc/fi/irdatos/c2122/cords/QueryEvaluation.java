@@ -150,15 +150,27 @@ public class QueryEvaluation {
      *             If it is 1, the phraseQuery will be computed instead.
      */
     public static void main(String[] args) {
-        if (args.length < 2) {
-            System.out.println("At least the cut-off of the documents results and k value of the MAP@k metric must be provided");
+        if (args[0].equals("-h")) {
+            System.out.println("Información sobre la aplicación:");
+            System.out.println("Warning: Para lanzar las queries es necesario tener en el root el índice de Lucene");
+            System.out.println("Parámetros a introducir (en orden): <n>, <k> y <q>");
+            System.out.println("\tn: Número de top documentos que se devuelven y sobre los que se puede hacer reranking");
+            System.out.println("\tk: Número de top documentos sobre los que se computa la métrica MAP@k");
+            System.out.println("\tq: Valor entero que indica la query que se quiere lanzar (puede ser 0, 1 o 2)");
+            System.out.println("Para más información acerca de las queries, consultar el README");
+            return;
+        }
+
+        if (args.length < 3) {
+            System.out.println("Se deben introducir los parámetros <n>, <k> y <q>");
+            System.out.println("\tn: Número de top documentos que se devuelven y sobre los que se puede hacer reranking");
+            System.out.println("\tk: Número de top documentos sobre los que se computa la métrica MAP@k");
+            System.out.println("\tq: Valor entero que indica la query que se quiere lanzar (puede ser 0, 1 o 2)");
             return;
         }
         int n = Integer.parseInt(args[0]);
         int k = Integer.parseInt(args[1]);
-        int typeQuery = 0;
-        typeQuery = Integer.parseInt(args[2]);
-
+        int typeQuery = Integer.parseInt(args[2]);
 
         // Read the topics set
         Topics.Topic[] topics = readTopicSet();

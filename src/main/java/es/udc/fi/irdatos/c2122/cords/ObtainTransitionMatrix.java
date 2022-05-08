@@ -253,8 +253,7 @@ public class ObtainTransitionMatrix {
                 for (int i=0; i < initialResultsTopic.size(); i++) {
                     TopDocument initialDocument = initialResultsTopic.get(i);
                     double initialScore = initialDocument.score();
-                    double newScore = pageRank.getEntry(docs2index.get(initialDocument.docID())) * initialScore * 0.3
-                            + initialScore * 0.7;
+                    double newScore = pageRank.getEntry(docs2index.get(initialDocument.docID())) * initialScore + initialScore;
                     newResultsTopics.add(new TopDocument(initialDocument.docID(), newScore, topicID));
                 }
                 Collections.sort(newResultsTopics, new TopDocumentOrder());
