@@ -28,10 +28,6 @@ con el algoritmo KNN. Con los resultados iniciales, se computa el algoritmo de R
 para las _queries_ y se vuelve a repetir el proceso. La implementación se encuentra en la función `knnRocchioQuery()` de 
 la clase `QueryTopics`.
 
-- `MAP@k=10`: 0.44599998
-- `MAP@k=100`: 0.06079999
-- `MAP@k=1000`:  0.012521271
-
 Para calcular Rocchio se usa una clase adicional (`PoolRocchio`) que paraleliza el cálculo de un nuevo vector para la 
 _query_ sobre todos los tópicos. Cabe desetacar que este algoritmo usa 3 parámetros que no han sido explorados (por 
 tanto los valores escogidos no son los óptimos).
