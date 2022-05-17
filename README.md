@@ -80,7 +80,9 @@ defecto, `iterations=1000` (se puede alterar pero se recomienda un valor medio p
 
 **Nota**: A la hora de cambiar el _score_ de los documentos según su Page Rank, se utiliza la siguiente fórmula:
 
-$$ \text{PageRank} \cdot \text{initialScore} + \text{initialScore} $$
+<p align="center">
+<img src="https://latex.codecogs.com/svg.image?\color{white}\text{finalScore}&space;=&space;\text{PageRank}\cdot&space;\text{initialScore}&space;&plus;&space;\text{initialScore}">
+</p>
 
 De esta forma, los resultados obtenidos tendrán en cuenta tanto la similitud coseno de los documentos con las _queries_ 
 como el _page rank_ de los documentos.
