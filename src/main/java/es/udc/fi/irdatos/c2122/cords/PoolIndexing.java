@@ -1,52 +1,53 @@
 package es.udc.fi.irdatos.c2122.cords;
 
-import com.fasterxml.jackson.datatype.jsr310.deser.key.LocalDateKeyDeserializer;
 import es.udc.fi.irdatos.c2122.schemas.Metadata;
-import es.udc.fi.irdatos.c2122.schemas.Topics;
-import org.apache.commons.io.FileUtils;
-import org.apache.commons.math3.linear.ArrayRealVector;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.*;
 import org.apache.lucene.index.*;
+import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.similarities.LMJelinekMercerSimilarity;
 import org.apache.lucene.search.similarities.Similarity;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.store.LockObtainFailedException;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static es.udc.fi.irdatos.c2122.cords.AuxiliarFunctions.*;
 import static es.udc.fi.irdatos.c2122.cords.CollectionReader.*;
 
 /**
- * Implements the parallel indexing process of the JSON files content once the metadata.csv has been parsed
+ * Implementation of the parallel indexing process of the JSON files content once the metadata.csv and cord-embeddings
+ * have been parsed.
+ *
+ * Global variables:
+ *      POOL_COLLECTION_PATH: Path where JSON files are stored.
+ *      INDEX_FOLDERNAME: Folder name index will be stored with.
+ *      similarity: Similarity object to write the index.
  */
 public class PoolIndexing {
     private Path POOL_COLLECTION_PATH = CollectionReader.DEFAULT_COLLECTION_PATH;
-    public static String INDEX_FOLDERNAME = "Index-StandardAnalyzer";
+    public static String INDEX_FOLDERNAME = "Index-LMJelinekMercer";
+    public static IndexWriter iwriter;
     public static Similarity similarity = new LMJelinekMercerSimilarity(0.1F);
-    private static Map<String, float[]> docEmbeddings;
+    public static Map<String, float[]> docEmbeddings;
+
 
     public class WorkerIndexing implements Runnable {
-        private IndexWriter iwriter;            // global IndexWriter for the inverted index
         private List<Metadata> metadataSlice;   // worker slice of metadata rows
         private int numWorker;
 
         /**
          * Subclass of a Thread Proccess of the indexing Pool.
-         * @param iwriter Index writer (thread-safe) to index the collection documents.
          * @param metadata List of Metadata objects representing each row of the metadata.csv file.
+         * @param numWorker Worker ID.
          */
-        public WorkerIndexing(IndexWriter iwriter, List<Metadata> metadata, int numWorker) {
-            this.iwriter = iwriter;
+        public WorkerIndexing(List<Metadata> metadata, int numWorker) {
             this.metadataSlice = metadata;
             this.numWorker = numWorker;
         }
@@ -57,50 +58,41 @@ public class PoolIndexing {
          */
         @Override
         public void run() {
-            for (Metadata article : metadataSlice) {
+            for (Metadata rowMetadata : metadataSlice) {
+                // Read PMC and PDF paths
+                ParsedArticle parsedArticle = parseArticle(rowMetadata);
+                if (Objects.isNull(parsedArticle)) {
+                    continue;
+                }
 
                 Document doc = new Document();
 
-                // Add article UID as stored field
-                doc.add(new StoredField("docID", article.cordUid()));
+                // Add rowMetadata UID as stored field
+                doc.add(new StoredField("docID", rowMetadata.cordUid()));
 
-                // Add title information
+                // Add title information as stored, tokenized and term-vectorized
                 FieldType titleFieldType = new FieldType();
                 titleFieldType.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS);
                 titleFieldType.setStored(true);
                 titleFieldType.setTokenized(true);
                 titleFieldType.setStoreTermVectors(true);
-                doc.add(new Field("title", article.title(), titleFieldType));
+                doc.add(new Field("title", rowMetadata.title(), titleFieldType));
 
-                // Add abstract information
+                // Add abstract information as stored, tokenized and term-vectorized
                 FieldType abstractFieldType = new FieldType();
                 abstractFieldType.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS);
                 abstractFieldType.setStored(true);
                 abstractFieldType.setTokenized(true);
                 abstractFieldType.setStoreTermVectors(true);
-                doc.add(new Field("abstract", article.abstrac(), abstractFieldType));
+                doc.add(new Field("abstract", rowMetadata.abstrac(), abstractFieldType));
 
-                // Add document embedding
-                if (docEmbeddings.keySet().contains(article.cordUid())) {
-                    float[] docEmbedding = docEmbeddings.get(article.cordUid());
+                // Add document embedding as a KnnVectorField
+                if (docEmbeddings.keySet().contains(rowMetadata.cordUid())) {
+                    float[] docEmbedding = docEmbeddings.get(rowMetadata.cordUid());
                     doc.add(new KnnVectorField("embedding", docEmbedding));
                 }
 
-
-                // Read PMC and PDF paths (check README-iteration1 to understand this block of code)
-                List<Path> pdfPaths = article.pdfFiles().stream().map(pdfPath -> POOL_COLLECTION_PATH.resolve(pdfPath)).collect(Collectors.toList());
-                ParsedArticle parsedArticle;
-                if (article.pmcFile().length() != 0) {
-                    parsedArticle = readArticle(POOL_COLLECTION_PATH.resolve(article.pmcFile()));
-                } else if (article.pdfFiles().size() >= 1) {
-                    List<Path> pmcpdfPaths = new ArrayList<>();
-                    pmcpdfPaths.addAll(pdfPaths);
-                    parsedArticle = readArticles(pmcpdfPaths);
-                } else {
-                    parsedArticle = new ParsedArticle("", "");
-                }
-
-                // Add body text
+                // Add body text as tokenized and term-vectorized (but not stored)
                 FieldType bodyFieldType = new FieldType();
                 bodyFieldType.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS);
                 bodyFieldType.setStored(false);
@@ -108,22 +100,33 @@ public class PoolIndexing {
                 bodyFieldType.setStoreTermVectors(true);
                 doc.add(new Field("body", parsedArticle.body(), bodyFieldType));
 
-                // Add authors
+                // Add authors as stored, tokenized but not term-vectorized
                 FieldType authorsFieldType = new FieldType();
-                authorsFieldType.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS);
+                authorsFieldType.setIndexOptions(IndexOptions.DOCS_AND_FREQS);
                 authorsFieldType.setStored(true);
                 authorsFieldType.setTokenized(true);
                 authorsFieldType.setStoreTermVectors(false);
                 doc.add(new Field("authors", parsedArticle.authors(), authorsFieldType));
 
-                // Write the document in the index
+                // Add PMC or PDF file as stored (it will be useful for computing PageRank)
+                FieldType fileFieldType = new FieldType();
+                fileFieldType.setStored(true);
+                fileFieldType.setTokenized(false);
+                fileFieldType.setIndexOptions(IndexOptions.NONE);
+                if (rowMetadata.pmcFile().length() != 0) {
+                    doc.add(new Field("file", rowMetadata.pmcFile(), fileFieldType));
+                } else {
+                    doc.add(new Field("file", rowMetadata.pdfFiles().get(0), fileFieldType));
+                }
+
+                // write the document in the index
                 try {
                     iwriter.addDocument(doc);
                 } catch (CorruptIndexException e) {
-                    System.out.println("CorruptIndexException while trying to write the document " + article.cordUid());
+                    System.out.println("CorruptIndexException while trying to write the document " + rowMetadata.cordUid());
                     e.printStackTrace();
                 } catch (IOException e) {
-                    System.out.println("IOException while trying to write the document " + article.cordUid());
+                    System.out.println("IOException while trying to write the document " + rowMetadata.cordUid());
                     e.printStackTrace();
                 }
             }
@@ -136,11 +139,12 @@ public class PoolIndexing {
      * Starts the executing pool for collection indexing. By default, the number of workers will be the number of
      * cores in the machine.
      */
-    public void launch() {
-        // Read metadata.csv
+    public void launch(boolean getReferences) {
+        // Read metadata.csv and document embeddings
         List<Metadata> metadata = readMetadata();
+        docEmbeddings = readDocEmbeddingsFloating();
 
-        // Create IndexWriter
+        // create IndexWriter and configure it
         Path indexPath = deleteFolder(INDEX_FOLDERNAME);
         IndexWriterConfig config = new IndexWriterConfig(new StandardAnalyzer());
         config.setSimilarity(similarity);
@@ -173,7 +177,7 @@ public class PoolIndexing {
             int end = workersDivision[i+1];
             List<Metadata> metadataSlice = metadata.subList(start, end);
             System.out.println("Thread " + i + " is indexing articles from " + start + " to " + end);
-            WorkerIndexing worker = new WorkerIndexing(writer, metadataSlice, i);
+            WorkerIndexing worker = new WorkerIndexing(metadataSlice, i);
             executor.execute(worker);
         }
 
@@ -186,7 +190,21 @@ public class PoolIndexing {
             System.exit(-2);
         }
 
-        // Close the writer
+
+        if (getReferences) {
+            try { writer.commit(); }
+            catch (IOException e) { e.printStackTrace(); return; }
+
+            ReaderSearcher objReaderSearcher = new ReaderSearcher(
+                    Paths.get(writer.getDirectory().toString()), similarity);
+            IndexReader reader = objReaderSearcher.reader();
+            IndexSearcher searcher = objReaderSearcher.searcher();
+
+            ReferencesIndexing referencesIndexing = new ReferencesIndexing(writer, reader, searcher);
+            referencesIndexing.launch();
+        }
+
+        // close the writer
         try {
             writer.commit();
             writer.close();
@@ -200,11 +218,12 @@ public class PoolIndexing {
     }
 
     public static void main(String[] args) {
-        // Read document embeddings
-        docEmbeddings = readDocEmbeddingsFloating();
-
         PoolIndexing pool = new PoolIndexing();
-        pool.launch();
+        if (args.length == 0) {
+            pool.launch(false);
+        } else {
+            pool.launch(true);
+        }
     }
 
 }

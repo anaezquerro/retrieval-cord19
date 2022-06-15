@@ -177,9 +177,9 @@ public class PoolCosineSimilarity {
 
         for (TopDocument docSim : docSimilarities) {
             try {
-                writer.write(String.join(" ", Integer.toString(topicID), docSim.docID(), Double.toString(docSim.score()), "\n"));
+                writer.write(String.join(" ", Integer.toString(topicID), docSim.cordID(), Double.toString(docSim.score()), "\n"));
             } catch (IOException e) {
-                System.out.println("IOException while saving results of document " + docSim.docID() + " in topic " + topicID);
+                System.out.println("IOException while saving results of document " + docSim.cordID() + " in topic " + topicID);
                 e.printStackTrace();
             }
         }

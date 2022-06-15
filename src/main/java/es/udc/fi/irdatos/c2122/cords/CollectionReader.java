@@ -15,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.commons.math3.linear.ArrayRealVector;
 
@@ -22,7 +23,7 @@ import org.apache.commons.math3.linear.ArrayRealVector;
 /**
  * Implements reading and parsing methods for TREC-COVID Collection.
  */
-public class CollectionReader<publc> {
+public class CollectionReader {
     // Path global variables
     public static final Path DEFAULT_COLLECTION_PATH = Paths.get("2020-07-16");
     public static String METADATA_FILENAME = "metadata.csv";
@@ -61,9 +62,9 @@ public class CollectionReader<publc> {
     /**
      * Parses the content of the JSON files with the given structure in the class Article.java
      * @param articlePath Path of the JSON file.
-     * @returns String array with the body text of the JSON file, references notes of the article and figure/table notes.
+     * @returns PorsedArticle instance.
      */
-    public static final ParsedArticle readArticle(Path articlePath) {
+    private static final ParsedArticle parseArticleFile(Path articlePath) {
         Article article;
         try {
             article = ARTICLE_READER.readValue(articlePath.toFile());
@@ -89,31 +90,75 @@ public class CollectionReader<publc> {
             StringBuilder articleAuthorsBuilder = new StringBuilder();
             for (int i=0; i < authors.size(); i++) {
                 articleAuthorsBuilder.append(authors.get(i).last());
-                articleAuthorsBuilder.append("; ");
+                articleAuthorsBuilder.append(" ; ");
             }
             articleAuthors = articleAuthorsBuilder.toString();
         }
-
 
         ParsedArticle parsedArticle = new ParsedArticle(articleText, articleAuthors);
         return parsedArticle;
     }
 
     /**
-     * Using the readArticle method, parses a set of articles and returns their joined content.
-     * @param articlesPath Array of paths to the set of articles which need to be parsed.
+     * Using the readArticleFile method, parses a set of articles and returns their joined content.
+     * @param articlePaths Array of paths to the set of articles which need to be parsed.
      * @returns String array where each element is the concatenation of one specific field of all articles specified in
      * articlesPath.
      */
-    public static final ParsedArticle readArticles(List<Path> articlesPath) {
+    private static final ParsedArticle parseArticleFiles(List<Path> articlePaths) {
         ParsedArticle completeArticle = new ParsedArticle("", "");
-        for (Path articlePath : articlesPath) {
-            ParsedArticle parsedArticle = readArticle(articlePath);
+        for (Path articlePath : articlePaths) {
+            ParsedArticle parsedArticle = parseArticleFile(articlePath);
             completeArticle.setBody(completeArticle.body() + "\n" + parsedArticle.body());
             completeArticle.setAuthors(completeArticle.authors() + "\n" + parsedArticle.authors());
         }
         return completeArticle;
     }
+
+    /**
+     * From a Metadata instance (row information in metadata.csv), reads the corresponding JSON file or files to return
+     * its content.
+     * @param rowMetadata Metadata object.
+     * @returns Parsed article with all the content.
+     */
+    public static final ParsedArticle parseArticle(Metadata rowMetadata) {
+        ParsedArticle parsedArticle;
+        if (rowMetadata.pmcFile().length() != 0) {
+            parsedArticle = parseArticleFile(DEFAULT_COLLECTION_PATH.resolve(rowMetadata.pmcFile()));
+        } else if (rowMetadata.pdfFiles().size() >= 1) {
+            List<Path> pdfPaths = rowMetadata.pdfFiles().stream().map(
+                    pdfPath -> DEFAULT_COLLECTION_PATH.resolve(pdfPath)
+            ).collect(Collectors.toList());
+            parsedArticle = parseArticleFiles(pdfPaths);
+        } else {
+            return null;
+        }
+        return parsedArticle;
+    }
+
+    /**
+     * From a Metadata instance, reads the PMC and PDF files and reads the PMC JSON file (if it exists) or the first
+     * PDF file. If non of them exist, return null.
+     * @param rowMetadata Metadata object.
+     */
+    public static final Article readArticle(Metadata rowMetadata) {
+        Article article;
+        try {
+            if (rowMetadata.pmcFile().length() != 0) {
+                article = ARTICLE_READER.readValue(DEFAULT_COLLECTION_PATH.resolve(rowMetadata.pmcFile()).toFile());
+            } else if (rowMetadata.pdfFiles().size() != 0) {
+                article = ARTICLE_READER.readValue(DEFAULT_COLLECTION_PATH.resolve(rowMetadata.pdfFiles().get(0)).toFile());
+            } else {
+                return null;
+            }
+        } catch (IOException e) {
+            System.out.println("IOException while reading JSON file " +  rowMetadata.pmcFile());
+            e.printStackTrace();
+            return null;
+        }
+        return article;
+    }
+
 
     /**
      * Parses the metadata.csv file with the given structure in Metadata.java

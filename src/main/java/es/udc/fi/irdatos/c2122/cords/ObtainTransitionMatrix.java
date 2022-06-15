@@ -113,7 +113,7 @@ public class ObtainTransitionMatrix {
                 Map<String, Integer> docs2index = new HashMap<>();
                 for (int i = 0; i < initialResultsTopic.size(); i++) {
                     TopDocument topDocument = initialResultsTopic.get(i);
-                    docs2index.put(topDocument.docID(), i);
+                    docs2index.put(topDocument.cordID(), i);
                 }
                 RealMatrix transitionMatrix = MatrixUtils.createRealMatrix(
                         initialResultsTopic.size(), initialResultsTopic.size());
@@ -254,7 +254,7 @@ public class ObtainTransitionMatrix {
                     TopDocument initialDocument = initialResultsTopic.get(i);
                     double initialScore = initialDocument.score();
                     double newScore = pageRank.getEntry(docs2index.get(initialDocument.docID())) * initialScore + initialScore;
-                    newResultsTopics.add(new TopDocument(initialDocument.docID(), newScore, topicID));
+                    newResultsTopics.add(new TopDocument(initialDocument.cordID(), newScore, topicID));
                 }
                 Collections.sort(newResultsTopics, new TopDocumentOrder());
                 newResultsSlice.put(topicID, newResultsTopics);

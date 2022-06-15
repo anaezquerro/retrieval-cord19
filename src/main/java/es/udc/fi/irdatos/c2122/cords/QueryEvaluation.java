@@ -2,20 +2,15 @@ package es.udc.fi.irdatos.c2122.cords;
 
 import es.udc.fi.irdatos.c2122.schemas.TopDocument;
 import es.udc.fi.irdatos.c2122.schemas.Topics;
-import org.apache.lucene.index.CorruptIndexException;
-import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.search.*;
 import org.apache.lucene.search.similarities.LMJelinekMercerSimilarity;
 import org.apache.lucene.search.similarities.Similarity;
-import org.apache.lucene.store.Directory;
-import org.apache.lucene.store.FSDirectory;
 
 
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.io.Reader;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
@@ -46,7 +41,7 @@ public class QueryEvaluation {
         // Loop for each document returned by the query
         for (int i = 0; i < Math.min(predictedRelevant.size(), k); i++) {
 
-            String docID = predictedRelevant.get(i).docID();
+            String docID = predictedRelevant.get(i).cordID();
 
             if (realRelevant.contains(docID)) {
                 TPseen = TPseen + 1;          // add +1 to the TP seen
@@ -119,7 +114,7 @@ public class QueryEvaluation {
 
             // add each document
             for (int i=0; i < cut; i++) {
-                String docID = topDocuments.get(i).docID();
+                String docID = topDocuments.get(i).cordID();
                 String rank = Integer.toString(i);
                 String score = Double.toString(topDocuments.get(i).score());
 
@@ -184,7 +179,7 @@ public class QueryEvaluation {
         IndexSearcher isearcher = creation.searcher();
 
         // Make the queries for each topic query
-        QueryTopics queryTopics = new QueryTopics(ireader, isearcher, topics, n);
+        QueryComputation queryTopics = new QueryComputation(ireader, isearcher, topics, n);
         Map<Integer, List<TopDocument>> topicsTopDocs = queryTopics.query(typeQuery);
 
         // Generate the results

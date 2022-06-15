@@ -26,3 +26,13 @@ cosineSimilarity/
 2020-07-16/
 .DS_Store
 *.rar
+
+# latex
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.pdf
+*.synctex.gz
+*.toc

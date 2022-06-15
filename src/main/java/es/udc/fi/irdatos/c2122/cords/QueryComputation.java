@@ -21,23 +21,37 @@ import static es.udc.fi.irdatos.c2122.cords.AuxiliarFunctions.floatArray2RealVec
 import static es.udc.fi.irdatos.c2122.cords.AuxiliarFunctions.realVector2floatArray;
 import static es.udc.fi.irdatos.c2122.cords.CollectionReader.*;
 
-public class QueryTopics {
+/**
+ * Multiple query implementations for TREC-COVID topics.
+ */
+public class QueryComputation {
     private static Topics.Topic[] topics;
     private static int n;
     private static IndexSearcher isearcher;
     private static IndexReader ireader;
 
-
-    public QueryTopics(IndexReader ireader, IndexSearcher isearcher, Topics.Topic[] topics, int n) {
+    /**
+     * Initialize QueryComputation class by introducing the index reader/searcher, list of topics and number of
+     * documents to be returned.
+     * @param ireader: IndexReader (needed to compute reranking and obtain documents stored data).
+     * @param isearcher: IndexSearcher.
+     * @param topics: Array of topics
+     * @param n: Number of documents to be returned for each query.
+     */
+    public QueryComputation(IndexReader ireader, IndexSearcher isearcher, Topics.Topic[] topics, int n) {
         this.ireader = ireader;
         this.isearcher = isearcher;
         this.topics = topics;
         this.n = n;
     }
 
+    /**
+     * Computes a specific query biy giving its integer identifier. From the list of topic (this.topics), it is possible
+     * to access to topic queries and use them to compute a ranking of n documents per topic.
+     * @param typeQuery: Integer used to identify the query to be computed (for more information, see README.md)
+     * @returns Map object where the top n documents are stored for each topic number.
+     */
     public Map<Integer, List<TopDocument>> query(int typeQuery) {
-
-        // Make the Query basd on the typeQuery
         if (typeQuery == 0) {
             return probabilisticQuery();
         } else if (typeQuery == 1) {
@@ -53,36 +67,23 @@ public class QueryTopics {
     }
 
     /**
-     * Coerces the top documents provided by Lucene to a list of Top Documents in which we store
-     * the docID, the score obtained in the topic query, the title and the authors.
-     * @param topDocs Top documents provided by Lucene with a specific query.
-     * @param topicID Topic number from which the query was obtained.
-     * @returns List of Top Document class.
+     * Compute the base query that consists of a MultiField weighted query for title, abstract and body fields.
+     * @returns Top n document for each topic.
      */
-    private static List<TopDocument> coerce(TopDocs topDocs, int topicID) {
-        List<TopDocument> topDocuments = Arrays.stream(topDocs.scoreDocs).map(x -> {
-            try {
-                Document doc = ireader.document(x.doc);
-                TopDocument topDocument = new TopDocument(doc.get("docID"), x.score, topicID,
-                        doc.get("title"), doc.get("authors"));
-                return topDocument;
-            } catch (IOException e) {
-                e.printStackTrace();
-                return null;
-            }
-        }).toList();
-        return topDocuments;
-    }
-
-
-    private static Map<Integer, List<TopDocument>> simpleQuery() {
+    private static Map<Integer, List<TopDocument>> multifieldQuery() {
         Map<Integer, List<TopDocument>> topicsTopDocs = new HashMap<>();
-        // Create MultiField parser with per field weights
+
+        // Create field weights (initially they are set to constant values but in future approaches it might be
+        // useful to configure them as a function of the number of documents to be returned)
         Map<String, Float> fields = Map.of("title", (float) 0.3, "abstract", (float) 0.5, "body", (float) 0.3);
+
+        // Create QueryParser with StandardAnalyzer
         QueryParser parser = new MultiFieldQueryParser(fields.keySet().toArray(new String[0]), new StandardAnalyzer(), fields);
 
-        // Loop for each topic to extract the topicID and make the query
+        // Loop for each topic to extract topicID and query
         for (Topics.Topic topic : topics) {
+
+            // parse the query text
             Query query;
             try {
                 query = parser.parse(topic.query());
@@ -92,7 +93,7 @@ public class QueryTopics {
                 return null;
             }
 
-            // Secondly, obtain the top N documents
+            // search in the index
             TopDocs topDocs;
             try {
                 topDocs = isearcher.search(query, n);
@@ -102,62 +103,33 @@ public class QueryTopics {
                 return null;
             }
 
-            // Finally, add the top documents to the map object
+            // add the top documents to the map object
             System.out.println(topDocs.totalHits + " results for the query: " + topic.query() + " [topic=" + topic.number() + "]");
             List<TopDocument> topDocuments = coerce(topDocs, topic.number());
             topicsTopDocs.put(topic.number(), topDocuments);
         }
-
         return obtainTopN(topicsTopDocs);
     }
 
-    private static List<Query> parseQueries(String[] fields, String[] textQueries) {
-        List<Query> queries = new ArrayList<>();
-        for (int i = 0; i < fields.length; i++) {
-            QueryParser parser = new QueryParser(fields[i], new StandardAnalyzer());
-            Query query;
-            try {
-                query = parser.parse(textQueries[i]);
-            } catch (ParseException e) {e.printStackTrace(); return null; }
-            queries.add(query);
-        }
-        return queries;
-    }
-
-    private static List<TopDocument> booleanQueries(List<Query> queries, int topicID) {
-        BooleanQuery.Builder booleanQueryBuilder = new BooleanQuery.Builder();
-
-        for (Query query : queries ) {
-            booleanQueryBuilder.add(query, BooleanClause.Occur.SHOULD);
-        }
-
-        BooleanQuery booleanQuery = booleanQueryBuilder.build();
-
-        TopDocs topDocs;
-        try {
-            topDocs = isearcher.search(booleanQuery, n);
-        } catch (IOException e) {
-            System.out.println("IOException while searching documents of the topic ");
-            e.printStackTrace();
-            return null;
-        }
-
-        List<TopDocument> topDocuments = coerce(topDocs, topicID);
-        return topDocuments;
-    }
-
+    /**
+     * Computes an initial boolean query and takes the top n documents to expand the initial query
+     * adding new terms and recompute the query.
+     * @returns Top n documents based on the expanded query.
+     */
     private static Map<Integer, List<TopDocument>> probabilisticQuery() {
         Map<Integer, List<TopDocument>> initialResults = new HashMap<>();
 
-        // Compute the first query
+        // To compute the initial results, we use the same query text for all fields (title, abstract and body)
         for (Topics.Topic topic : topics) {
             String[] initialTextQueries = new String[] {topic.query(), topic.query(), topic.query()};
             List<Query> queries = parseQueries(new String[] {"title", "abstract", "body"}, initialTextQueries);
 
-            // Create boolean query
-            List<TopDocument> topDocuments = booleanQueries(queries, topic.number());
+            TopDocs topDocs = booleanQueries(queries);
+            List<TopDocument> topDocuments = coerce(topDocs, topic.number());
             initialResults.put(topic.number(), topDocuments);
         }
+
+        //
         ProbabilityFeedback probs = new ProbabilityFeedback(ireader, initialResults, 1);
         Map<Integer, List<String>> newTitleTerms = probs.getProbabilities("title");
         Map<Integer, List<String>> newAbstractTerms = probs.getProbabilities("abstract");
@@ -172,7 +144,8 @@ public class QueryTopics {
             List<Query> queries = parseQueries(new String[] {"title", "abstract", "body"}, newTextQueries);
 
             // Create boolean query
-            List<TopDocument> topDocuments = booleanQueries(queries, topic.number());
+            TopDocs topDocs = booleanQueries(queries);
+            List<TopDocument> topDocuments = coerce(topDocs, topic.number());
             topicsTopDocs.put(topic.number(), topDocuments);
         }
         return topicsTopDocs;
@@ -254,25 +227,25 @@ public class QueryTopics {
         Map<Integer, ArrayRealVector> queryEmbeddings = readQueryEmbeddings();
 
         // Obtain initial results
-        Map<Integer, List<TopDocument>> initialResults = CollectionReader.readCosineSimilarities("cosineSimilarity", true);
+        Map<Integer, List<TopDocument>> initialResults = readCosineSimilarities("cosineSimilarity", true);
         initialResults = obtainTopN(initialResults);
 
         // Obtain results of simpleQuery
-        Map<Integer, List<TopDocument>> simpleQueryResults = simpleQuery();
+        Map<Integer, List<TopDocument>> simpleQueryResults = multifieldQuery();
 
         // Merge both results
         Map<Integer, List<TopDocument>> mergedResults = new HashMap<>();
         for (Integer topic : initialResults.keySet()) {
             Map<String, TopDocument> mergedresultsTopic = new HashMap<>();
             for (TopDocument topDocument : initialResults.get(topic)) {
-                mergedresultsTopic.put(topDocument.docID(), topDocument);
+                mergedresultsTopic.put(topDocument.cordID(), topDocument);
             }
             for (TopDocument topDocument : simpleQueryResults.get(topic)) {
-                if (mergedresultsTopic.containsKey(topDocument.docID())) {
-                    double oldScore = mergedresultsTopic.get(topDocument.docID()).score();
-                    mergedresultsTopic.get(topDocument.docID()).setScore(oldScore + topDocument.score());
+                if (mergedresultsTopic.containsKey(topDocument.cordID())) {
+                    double oldScore = mergedresultsTopic.get(topDocument.cordID()).score();
+                    mergedresultsTopic.get(topDocument.cordID()).setScore(oldScore + topDocument.score());
                 } else {
-                    mergedresultsTopic.put(topDocument.docID(), topDocument);
+                    mergedresultsTopic.put(topDocument.cordID(), topDocument);
                 }
             }
             List<TopDocument> topDocuments = new ArrayList<>();
@@ -369,4 +342,74 @@ public class QueryTopics {
 
         return topicsTopDocs;
     }
+
+    /**
+     * Coerces the top documents provided by Lucene to a list of Top Documents in which we store
+     * the docID, the score obtained in the topic query, the title and the authors.
+     * @param topDocs Top documents provided by Lucene with a specific query.
+     * @param topicID Topic number from which the query was obtained.
+     * @returns List of Top Document class.
+     */
+    private static List<TopDocument> coerce(TopDocs topDocs, int topicID) {
+        List<TopDocument> topDocuments = Arrays.stream(topDocs.scoreDocs).map(x -> {
+            try {
+                Document doc = ireader.document(x.doc);
+                TopDocument topDocument = new TopDocument(doc.get("docID"), x.score, topicID,
+                        doc.get("title"), doc.get("authors"));
+                topDocument.setDocID(x.doc);
+                return topDocument;
+            } catch (IOException e) {
+                e.printStackTrace();
+                return null;
+            }
+        }).toList();
+        return topDocuments;
+    }
+
+    /**
+     * For a given array of field names and array of texts (representing the query text for each field), use a
+     * QueryParser to parse each text for its corresponding field and return the resulting query.
+     * @param fields: String array of field names.
+     * @param textQueries: String array of texts to be parsed as queries for each field.
+     * @returns: An array of queries.
+     */
+    private static List<Query> parseQueries(String[] fields, String[] textQueries) {
+        List<Query> queries = new ArrayList<>();
+        for (int i = 0; i < fields.length; i++) {
+            QueryParser parser = new QueryParser(fields[i], new StandardAnalyzer());
+            Query query;
+            try {
+                query = parser.parse(textQueries[i]);
+            } catch (ParseException e) {e.printStackTrace(); return null; }
+            queries.add(query);
+        }
+        return queries;
+    }
+
+
+    /**
+     * Compute a boolean query with a given list of queries.
+     * @param queries: List of queries.
+     * @returns: Top n documents for the boolean query.
+     */
+    private static TopDocs booleanQueries(List<Query> queries) {
+        BooleanQuery.Builder booleanQueryBuilder = new BooleanQuery.Builder();
+
+        for (Query query : queries ) {
+            booleanQueryBuilder.add(query, BooleanClause.Occur.SHOULD);
+        }
+
+        BooleanQuery booleanQuery = booleanQueryBuilder.build();
+
+        TopDocs topDocs;
+        try {
+            topDocs = isearcher.search(booleanQuery, n);
+        } catch (IOException e) {
+            System.out.println("IOException while searching documents of the topic ");
+            e.printStackTrace();
+            return null;
+        }
+        return topDocs;
+    }
+
 }

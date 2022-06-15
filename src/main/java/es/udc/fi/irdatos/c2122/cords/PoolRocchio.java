@@ -82,7 +82,7 @@ public class PoolRocchio {
 
         private ArrayRealVector computeRocchio(ArrayRealVector queryEmbedding, List<TopDocument> relevant) {
             // Obtain only docIDs of relevant documents
-            List<String> relevantDocs = relevant.stream().map(doc -> doc.docID()).toList();
+            List<String> relevantDocs = relevant.stream().map(doc -> doc.cordID()).toList();
 
             // Read document embeddings file to compute the new query
 

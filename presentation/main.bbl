@@ -1,0 +1,19 @@
+\begin{thebibliography}{}
+
+\bibitem[Croft et~al., 2010]{croft2010search}
+Croft, W.~B., Metzler, D., and Strohman, T. (2010).
+\newblock {\em Search engines: Information retrieval in practice}, volume 520.
+\newblock Addison-Wesley Reading.
+
+\bibitem[Salton and Buckley, 1990]{salton1990improving}
+Salton, G. and Buckley, C. (1990).
+\newblock Improving retrieval performance by relevance feedback.
+\newblock {\em Journal of the American society for information science},
+  41(4):288--297.
+
+\bibitem[Sch{\"u}tze et~al., 2008]{schutze2008introduction}
+Sch{\"u}tze, H., Manning, C.~D., and Raghavan, P. (2008).
+\newblock {\em Introduction to information retrieval}, volume~39.
+\newblock Cambridge University Press Cambridge.
+
+\end{thebibliography}

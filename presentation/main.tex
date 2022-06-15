@@ -1,0 +1,107 @@
+\documentclass[10pt]{beamer}
+\usetheme{CambridgeUS}
+\usecolortheme{seahorse}
+\usepackage{amssymb,amsmath}
+\usepackage[utf8]{inputenc}
+
+\usepackage{xcolor}
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks = true,
+    linkcolor = blue,
+    urlcolor = blue
+}
+
+\usepackage[capitalise, noabbrev, nameinlink]{cleveref}
+
+
+% -------- Portada ---------
+\title{Our proposal of three different queries to tackle TREC-COVID Challenge}
+\author{Grado en Ciencia e Ingeniería de Datos}
+\institute{Universidade da Coruña}
+\date{\today}
+
+\begin{document}
+
+\frame{\titlepage}
+
+\begin{frame}
+    \frametitle{Introduction}
+    This presentation expounds the work done for addressing \href{https://ir.nist.gov/trec-covid/}{TREC-COVID Challenge}, as well as the implementation details and obtained results:
+
+    \begin{itemize}
+        \item Parsing, indexing and querying processes are implemented in \href{https://www.oracle.com/java/technologies/javase/jdk17-archive-downloads.html}{Java 17}, mainly using \href{https://lucene.apache.org/}{Apache Lucene 8.0.0} library. 
+        \item The evaluation metric for all queries is the \href{https://amitness.com/2020/08/information-retrieval-evaluation/\#2-average-precisionap}{average precision at $k$} from the \href{https://ir.nist.gov/trec-covid/data/qrels-covid_d5_j0.5-5.txt}{round-5 relevance judgements} of the TREC-COVID Dataset. Since every query is  evaluated on the \href{https://ir.nist.gov/trec-covid/data/topics-rnd5.xml}{50 different topics} (using the \texttt{query} field), the \href{https://blog.paperspace.com/mean-average-precision/}{mean average precision} is used.
+        \item The MAP$@k$ metric is evaluated for $k=10, 100, 1000$ returning $n=100, 1000, 1000$ documents, respectively.
+        \item Almost all queries were developed based on \cite{schutze2008introduction} and \cite{croft2010search} theory.
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Indexing and querying details}
+    \begin{itemize}
+        \item In the indexing process, \textit{title}, \textit{authors} (only surnames), \textit{abstract}, \textit{body} and \textit{references title and authors} fields were indexed.
+        \item Excluding Query 2, out approaches search in \textit{title}, \textit{abstract} and \textit{body} fields of each document. The \href{https://lucene.apache.org/core/6_0_0/queryparser/org/apache/lucene/queryparser/classic/MultiFieldQueryParser.html}{\texttt{MultiFieldQueryParser}} was used assigning weights to the fields.
+        \item Indexing process and some computational-expensive queries are parallelized in order to reduce run-time.
+    \end{itemize}
+\end{frame}
+
+{
+\setbeamerfont{frametitle}{size=\normalsize}
+\begin{frame}{Query 1. Language Model with Jelinek Mercer smoothing and query expansion based on probability theory and pseudo-relevance feedback}
+    \begin{itemize}
+        \item Apache Lucene automatically implements the LM model with Jelinek Mercer smoothing by configuring \href{https://lucene.apache.org/core/7_4_0/core/org/apache/lucene/index/IndexWriter.html}{\texttt{IndexWriter}} and \href{https://lucene.apache.org/core/8_0_0/core/org/apache/lucene/search/IndexSearcher.html}{\texttt{IndexSearcher}} with  \href{https://lucene.apache.org/core/8_6_2/core/org/apache/lucene/search/similarities/LMJelinekMercerSimilarity.html}{\texttt{LMJelinekMercerSimilarity}} class.
+        \item Once the $n$ documents are returned (our initial results), the re-ranking method is computed by considering that top $n$ documents conform the true relevant document set (pseudo-relevance feedback). Thus, from the Binary Independence Model (BIM) assumptions, we can compute the log-odd ratios of each term $t$:
+        
+        \[ c_t = \log \frac{|V_t| + 0.5}{|V| - |V_t| +1 } + \underbrace{\log \frac{N}{\text{df}_t}}_{\text{idf}_t} \] 
+
+        where $V$ is the set of relevant documents, $V_t$ is the subset of $V$ the term $t$ appears in and  $\text{df}_t$ and $\text{idf}_t$ are the document frequency and inverse document frequency, respectively, of term $t$.
+        
+        Then expand the original query $q$ with the top $m$ terms with highest odd ratios (where $m$ can be configured by the user).
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Query 2. Vector Space Model using TREC-COVID embeddings and comuting cosine similarity corrected with Rocchio \cite{salton1990improving}}
+    \begin{itemize}
+        \item The TREC-COVID Dataset provides a collection of document embeddings computed by \href{https://arxiv.org/abs/2004.07180}{SPECTER transformer}.
+        \item Query embeddings were provided with the assignment.
+        \item The cosine similarity between the pair $(\vec{q}, \vec{d})$ is computed as the relevance score of the document $d$ for the query $q$. This process was parallelized.
+        \item Once the top $n$ documents are retrieved, we apply pseudo-relevance feedback and consider these top $n$ documents are the true relevant documents.
+        \item Then correct the initial query $\vec{q}_0$ with Rocchio algorithm:
+        \[ \vec{q}_m = \alpha \vec{q}_0 + \beta \frac{1}{|D_r|} \sum_{\vec{d}\in D_r}\vec{d} - \gamma \frac{1}{|D_{nr}|} \sum_{d\in D_{nr}} \vec{d}, \qquad \alpha, \beta, \gamma \in [0,1]\]
+        where $\alpha$, $\beta$ and $\gamma$ are parameters that can be fixed by the user and $D_r$ and $D_{nr}$ are the set of relevant and non-relevant documents, respectively.
+        \item Finally compute again cosine similarity between the entire document collection and corrected query embeddings $\vec{q}_m$.
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Query 3. LM with Jelinek Mercer smoothing and re-ranking documents using PageRank score}
+    \begin{itemize}
+        \item \textbf{Hypothesis}: Some articles might reference to other articles that are in the collection, which means that there is a high probability that both have information about the same (or at least similar) topic. 
+        \item \textbf{Problem}: We don't know the real relations between articles since in each reference only has a \textit{title} and \textit{authors} field.
+        \item \textbf{Idea}: Create a match between title and authors of a reference and a document in the collection (i.e. query with reference title and authors and consider the top $n$ documents, where $n$ should be 1 or 2).
+        \item Once the match between references and documents is done, construct the transition matrix and compute the Page Rank score.
+        \begin{itemize}
+            \item \textbf{Improvement}: Instead of using 1 in position $(i, j)$ if $d_i$ references $d_j$, use the number of times $d_i$ references $d_j$.
+        \end{itemize}
+        \item Proceed by retrieving the top $n$ documents based on LM and multi-field query parser.
+        \item Weight the top $n$ documents score by the Page Rank to obtain a new ranking.
+    \end{itemize}
+\end{frame}
+
+
+}
+
+\begin{frame}{Results and conclusions}
+    
+\end{frame}
+
+\begin{frame}{Further work}
+    
+\end{frame}
+
+
+\begin{frame}
+    \bibliography{bibliography}
+    \bibliographystyle{apalike}
+\end{frame}
+
+\end{document}

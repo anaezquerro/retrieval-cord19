@@ -2,11 +2,17 @@ package es.udc.fi.irdatos.c2122.cords;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.math3.linear.ArrayRealVector;
+import org.apache.lucene.analysis.standard.StandardAnalyzer;
+import org.apache.lucene.queryparser.classic.ParseException;
+import org.apache.lucene.queryparser.classic.QueryParser;
+import org.apache.lucene.search.Query;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 
 public class AuxiliarFunctions {
 
@@ -53,5 +59,6 @@ public class AuxiliarFunctions {
         }
         return arr;
     }
+
 
 }
