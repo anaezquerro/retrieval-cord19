@@ -46,7 +46,8 @@ public class ReferencesIndexing {
     public String parse(String text) {
         String parsedText = text.replaceAll("\\[|\\]|\\(|\\)|/|-|\\'|\\:|\\\\|\"|\\}|\\{|\\*|\\?|\\!|\\^|\\~|\\+|\\;", " ");
         parsedText = parsedText.replaceAll(" and| or| the| at| of| a| in| OR| AND", " ");
-        return parsedText.strip();
+        parsedText = String.join(" ", parsedText.strip().split("\\s+"));
+        return parsedText;
     }
 
     private String parseAuthors(List<Article.Author> authors) {
@@ -208,19 +209,23 @@ public class ReferencesIndexing {
                 }
 
                 // save results with the index writer
+
                 try {
                     int j = 0;
-                    for (int i = 0;
-                         (i < Math.min(topDocs.scoreDocs.length, topDocs.totalHits.value)) && (j<m);
-                         i++) {
+                    for (int i = 0; (i < Math.min(topDocs.scoreDocs.length, topDocs.totalHits.value)) && (j<m); i++) {
                         int docRefID = topDocs.scoreDocs[i].doc;
                         List<String> docRefTitleWords = Arrays.stream(parse(ireader.document(docRefID).get("title")).split(" "))
                                 .distinct().toList();
+
+                        // number of words from doc that are not in references
                         int mismatches = (int) docRefTitleWords.stream()
                                 .filter(x -> !reference.title().contains(x)).count();
-                        if (mismatches > 0.1*docRefTitleWords.size()) {
-                            continue;
-                        }
+                        if (mismatches > 0.1*docRefTitleWords.size()) {continue;}
+
+                        mismatches = (int) Arrays.stream(reference.title().split("\\s+"))
+                                .filter(x -> !docRefTitleWords.contains(x)).count();
+                        if (mismatches > 0.1*reference.title().split("\\s+").length) {continue;}
+
                         System.out.println(reference.title() + ": " + parse(ireader.document(docRefID).get("title")));
                         referencesBuilder.append(
                                 ireader.document(docRefID).get("docID") + " " + reference.count() + "\n");
@@ -270,7 +275,6 @@ public class ReferencesIndexing {
             }
         }
     }
-
 
 
     public void launch() {

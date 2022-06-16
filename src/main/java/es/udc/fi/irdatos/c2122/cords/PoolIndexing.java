@@ -5,6 +5,7 @@ import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.*;
 import org.apache.lucene.index.*;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.similarities.BM25Similarity;
 import org.apache.lucene.search.similarities.LMJelinekMercerSimilarity;
 import org.apache.lucene.search.similarities.Similarity;
 import org.apache.lucene.store.FSDirectory;
@@ -32,9 +33,9 @@ import static es.udc.fi.irdatos.c2122.cords.CollectionReader.*;
  */
 public class PoolIndexing {
     private Path POOL_COLLECTION_PATH = CollectionReader.DEFAULT_COLLECTION_PATH;
-    public static String INDEX_FOLDERNAME = "Index-LMJelinekMercer";
+    public static String INDEX_FOLDERNAME = "Index-BM25";
     public static IndexWriter iwriter;
-    public static Similarity similarity = new LMJelinekMercerSimilarity(0.1F);
+    public static Similarity similarity = new BM25Similarity();
     public static Map<String, float[]> docEmbeddings;
 
 

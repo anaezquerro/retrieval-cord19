@@ -71,7 +71,7 @@ public class ProbabilityFeedback {
                     String term = text.utf8ToString();
                     if (relDocFrequencies.containsKey(term)) {
                         relDocFrequencies.put(term, relDocFrequencies.get(term) + 1.0);
-                    } {
+                    } else {
                         relDocFrequencies.put(term, 1.0);
                         docFrequencies.put(term, (double) ireader.docFreq(new Term(fieldname, term)));
                     }
@@ -92,18 +92,12 @@ public class ProbabilityFeedback {
         List<String> sortedTerms = scores
                 .entrySet()
                 .stream()
-                .sorted(Collections.reverseOrder(Map.Entry.comparingByValue()))
+                .sorted(Map.Entry.comparingByValue())
                 .map(x -> x.getKey()).toList();
-
         // Return the list of numTerms terms with the highest score
         return sortedTerms.subList(0, Math.min(numTerms, sortedTerms.size()));
     }
 
-    /**
-     * Compute the probability score for each topic.
-     * @param fieldname: Name of the field in which the query expansion is computed.
-     * @returns: Map object with new query terms for each topic.
-     */
     public Map<Integer, List<String>> getProbabilities(String fieldname) {
         Map<Integer, List<String>> newTermsTopic = new HashMap<>();
         for (int topicID : initialResults.keySet()) {
