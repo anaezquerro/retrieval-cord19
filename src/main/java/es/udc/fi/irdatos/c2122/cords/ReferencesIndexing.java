@@ -45,7 +45,7 @@ public class ReferencesIndexing {
      */
     public String parse(String text) {
         String parsedText = text.replaceAll("\\[|\\]|\\(|\\)|/|-|\\'|\\:|\\\\|\"|\\}|\\{|\\*|\\?|\\!|\\^|\\~|\\+|\\;", " ");
-        parsedText = parsedText.replaceAll("and|or|the|at|of|a|in|OR|AND", "");
+        parsedText = parsedText.replaceAll(" and| or| the| at| of| a| in| OR| AND", " ");
         return parsedText.strip();
     }
 
@@ -217,10 +217,11 @@ public class ReferencesIndexing {
                         List<String> docRefTitleWords = Arrays.stream(parse(ireader.document(docRefID).get("title")).split(" "))
                                 .distinct().toList();
                         int mismatches = (int) docRefTitleWords.stream()
-                                .filter(x -> reference.title().contains(x)).count();
-                        if (mismatches > 0.15*docRefTitleWords.size()) {
+                                .filter(x -> !reference.title().contains(x)).count();
+                        if (mismatches > 0.1*docRefTitleWords.size()) {
                             continue;
                         }
+                        System.out.println(reference.title() + ": " + parse(ireader.document(docRefID).get("title")));
                         referencesBuilder.append(
                                 ireader.document(docRefID).get("docID") + " " + reference.count() + "\n");
                         j++;
