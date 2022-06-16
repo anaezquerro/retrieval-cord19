@@ -2,33 +2,41 @@ package es.udc.fi.irdatos.c2122.cords;
 
 import es.udc.fi.irdatos.c2122.schemas.Article;
 import es.udc.fi.irdatos.c2122.schemas.Metadata;
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.output.FileWriterWithEncoding;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
+import org.apache.lucene.document.FieldType;
 import org.apache.lucene.document.KnnVectorField;
-import org.apache.lucene.index.CorruptIndexException;
-import org.apache.lucene.index.IndexReader;
-import org.apache.lucene.index.IndexWriter;
-import org.apache.lucene.index.Term;
+import org.apache.lucene.document.StoredField;
+import org.apache.lucene.index.*;
 import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.*;
 
+import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.sql.SQLOutput;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
-import static es.udc.fi.irdatos.c2122.cords.AuxiliarFunctions.coalesce;
+import static es.udc.fi.irdatos.c2122.cords.AuxiliarFunctions.*;
 
 public class ReferencesIndexing {
     IndexWriter iwriter;
     IndexSearcher isearcher;
     IndexReader ireader;
-    int m;
+    int m = 2;
     int numAuthors = 5;
+    String storingFolder = "references";
+    boolean search;
 
     /**
      * Deletes stopwords from text (and, or the at of a in, OR, AND and other characters that cannot be parsed).
@@ -54,20 +62,17 @@ public class ReferencesIndexing {
         return parsedAuthors;
     }
 
-
-    public ReferencesIndexing(IndexWriter iwriter, IndexReader ireader, IndexSearcher isearcher) {
+    public ReferencesIndexing(IndexWriter iwriter, IndexReader ireader, IndexSearcher isearcher, boolean search) {
         this.iwriter = iwriter;
         this.isearcher = isearcher;
         this.ireader = ireader;
-        this.m = 2;
+        this.search = search;
+        if (search) {
+            deleteFolder(storingFolder);
+            createFolder(storingFolder);
+        }
     }
 
-    public ReferencesIndexing(IndexWriter iwriter, IndexReader ireader, IndexSearcher isearcher, int m) {
-        this.iwriter = iwriter;
-        this.isearcher = isearcher;
-        this.ireader = ireader;
-        this.m = m;
-    }
 
     private class ParsedReference {
         private String title;
@@ -77,7 +82,7 @@ public class ReferencesIndexing {
         public ParsedReference(String title, String authors) {
             this.title = title;
             this.authors = authors;
-            this.count = 1;
+            this.count = 0;
         }
 
         public void increaseCount(int by) {
@@ -118,7 +123,9 @@ public class ReferencesIndexing {
         for (Article.Content paragraph : body_text) {
             List<Article.Content.Cite> cites = paragraph.cite_spans();
             for (Article.Content.Cite cite : cites) {
-                parsedReferences.get(cite.ref_id()).increaseCount(1);
+                if (parsedReferences.containsKey(cite.ref_id())) {
+                    parsedReferences.get(cite.ref_id()).increaseCount(1);
+                }
             }
         }
         return parsedReferences;
@@ -137,6 +144,92 @@ public class ReferencesIndexing {
             this.workerID = workerID;
         }
 
+        private String searchReferences(int docID) {
+            // 1. Read document with IndexReader and obtain the Article file read
+            Document doc;
+            Article article;
+            try {
+                doc = ireader.document(docID);
+                article = CollectionReader.ARTICLE_READER.readValue(
+                        CollectionReader.DEFAULT_COLLECTION_PATH.resolve(doc.get("file")).toFile());
+            } catch (IOException e) {
+                e.printStackTrace();
+                return null;
+            }
+
+            StringBuilder referencesBuilder = new StringBuilder();
+
+            // 2. Obtain article references and search them in the index
+            Map<String, ParsedReference> references = parseReferences(article);
+            for (ParsedReference reference : references.values()) {
+
+                // construct boolean query
+                BooleanQuery.Builder booleanQueryBuilder = new BooleanQuery.Builder();
+
+                // construct query parser for the title of the reference
+                QueryParser queryParser = new QueryParser("title", new StandardAnalyzer());
+                Query query;
+
+                try {
+                    query = queryParser.parse(reference.title());
+                } catch (ParseException e) {
+                    System.out.println("ParseException while construction the query for reference in article " +
+                            doc.get("docID") + " [" + doc.get("file") + "]: " + reference.title());
+                    e.printStackTrace();
+                    return null;
+                }
+
+                // add to the query
+                booleanQueryBuilder.add(query, BooleanClause.Occur.SHOULD);
+
+                // query for authors of the reference
+                QueryParser parserAuthors = new QueryParser("authors", new StandardAnalyzer());
+                Query queryAuthor;
+                try {
+                    queryAuthor = parserAuthors.parse(reference.authors());
+                } catch (ParseException e) {
+                    System.out.println("ParseException while constructing the query for reference author " +
+                            "in article " + doc.get("docID") + ": " + reference.authors());
+                    e.printStackTrace();
+                    return null;
+                }
+
+                booleanQueryBuilder.add(queryAuthor, BooleanClause.Occur.SHOULD);
+
+                // build the query and execute
+                BooleanQuery booleanQuery = booleanQueryBuilder.build();
+
+                TopDocs topDocs;
+                try {
+                    topDocs = isearcher.search(booleanQuery, 100);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    return null;
+                }
+
+                // save results with the index writer
+                try {
+                    int j = 0;
+                    for (int i = 0;
+                         (i < Math.min(topDocs.scoreDocs.length, topDocs.totalHits.value)) && (j<m);
+                         i++) {
+                        int docRefID = topDocs.scoreDocs[i].doc;
+                        List<String> docRefTitleWords = Arrays.stream(parse(ireader.document(docRefID).get("title")).split(" "))
+                                .distinct().toList();
+                        int mismatches = (int) docRefTitleWords.stream()
+                                .filter(x -> reference.title().contains(x)).count();
+                        if (mismatches > 0.15*docRefTitleWords.size()) {
+                            continue;
+                        }
+                        referencesBuilder.append(
+                                ireader.document(docRefID).get("docID") + " " + reference.count() + "\n");
+                        j++;
+                    }
+                } catch (IOException e) {e.printStackTrace();return null;}
+            }
+            return referencesBuilder.toString();
+        }
+
         /**
          * For each article in the metadata slice (group of rows of metadata.csv), parse its references
          * from the PMC file and use them to search in the index (with ireader and isearcher). Obtain the top
@@ -146,75 +239,27 @@ public class ReferencesIndexing {
         @Override
         public void run() {
             for (int docID = start; docID < end; docID++) {
-                // 1. Read document with IndexReader and obtain the Article file read
+                if (Math.floorMod(docID, 500) == 0) {
+                    System.out.println(workerID + ": is in docID=" + docID);
+                }
+
                 Document doc;
-                Article article;
+                String references = null;
                 try {
                     doc = ireader.document(docID);
-                    article = CollectionReader.ARTICLE_READER.readValue(
-                            CollectionReader.DEFAULT_COLLECTION_PATH.resolve(doc.get("file")).toFile());
-                } catch (IOException e) {e.printStackTrace(); return;}
-
-                // prepare the vector where count of references will be stored
-                float[] referencesVector = new float[ireader.numDocs()];
-                Arrays.fill(referencesVector, 0F);
-
-                // 2. Obtain article references and search them in the index
-                Map<String, ParsedReference> references = parseReferences(article);
-                for (ParsedReference reference : references.values()) {
-
-                    // construct boolean query
-                    BooleanQuery.Builder booleanQueryBuilder = new BooleanQuery.Builder();
-
-                    // construct query parser for the title of the reference
-                    QueryParser queryParser = new QueryParser("title", new StandardAnalyzer());
-                    Query query;
-
-                    try {
-                        query = queryParser.parse(reference.title());
-                    } catch (ParseException e) {
-                        System.out.println("ParseException while construction the query for reference in article " +
-                                doc.get("docID") + " [" + doc.get("file") + "]: " + reference.title());
-                        e.printStackTrace();
-                        return;
+                    if (search) {
+                        references = searchReferences(docID);
+                        FileWriter fwriter = createFileWriter(storingFolder + "/" + doc.get("docID"));
+                        fwriter.write(references);
+                        fwriter.close();
+                    } else {
+                        references = new String(Files.readAllBytes(Paths.get(storingFolder, doc.get("docID"))));
                     }
+                } catch (IOException e) {e.printStackTrace();return;
+                } catch(Exception e) {e.printStackTrace();return;}
 
-                    // add to the query
-                    booleanQueryBuilder.add(query, BooleanClause.Occur.SHOULD);
-
-                    // query for authors of the reference
-                    QueryParser parserAuthors = new QueryParser("authors", new StandardAnalyzer());
-                    Query queryAuthor;
-                    try {
-                        queryAuthor = parserAuthors.parse(reference.authors());
-                    } catch (ParseException e) {
-                        System.out.println("ParseException while constructing the query for reference author " +
-                                "in article " + doc.get("docID") + ": " + reference.authors());
-                        e.printStackTrace();
-                        return;
-                    }
-
-                    booleanQueryBuilder.add(queryAuthor, BooleanClause.Occur.SHOULD);
-
-                    // build the query and execute
-                    BooleanQuery booleanQuery = booleanQueryBuilder.build();
-
-                    TopDocs topDocs;
-                    try {
-                        topDocs = isearcher.search(booleanQuery, m);
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                        return;
-                    }
-
-                    // save results with the index writer
-                    for (int i = 0; i < Math.min(topDocs.scoreDocs.length, topDocs.totalHits.value); i++) {
-                        int docRefID = topDocs.scoreDocs[i].doc;
-                        referencesVector[docRefID] = Math.max(reference.count(), referencesVector[docRefID]);
-                    }
-                }
                 // add to the document the referencesVector
-                doc.add(new KnnVectorField("referencesVector", referencesVector));
+                doc.add(new StoredField("references", references));
                 try {
                     iwriter.updateDocument(new Term("docID", doc.get("docID")), doc);
                 } catch (IOException e) {
@@ -223,9 +268,6 @@ public class ReferencesIndexing {
                 }
             }
         }
-
-
-
     }
 
 
@@ -248,10 +290,35 @@ public class ReferencesIndexing {
         // end the executor
         executor.shutdown();
         try {
-            executor.awaitTermination(40, TimeUnit.MINUTES);
+            executor.awaitTermination(1, TimeUnit.HOURS);
         } catch (final InterruptedException e) {
             e.printStackTrace();
             System.exit(-2);
         }
+
+        // close the writer
+        try {
+            iwriter.commit();
+            iwriter.close();
+        } catch (CorruptIndexException e) {
+            System.out.println("CorruptIndexException while closing the index writer");
+            e.printStackTrace();
+        } catch (IOException e) {
+            System.out.println("IOException while closing the index writer");
+            e.printStackTrace();
+        }
+    }
+
+    public static void main(String[] args) {
+        IndexWriter writer = createIndexWriter(PoolIndexing.INDEX_FOLDERNAME);
+        ReaderSearcher objReaderSearcher = new ReaderSearcher(
+                Paths.get(PoolIndexing.INDEX_FOLDERNAME),
+                PoolIndexing.similarity);
+        IndexSearcher searcher = objReaderSearcher.searcher();
+        IndexReader reader = objReaderSearcher.reader();
+
+        ReferencesIndexing pool = new ReferencesIndexing(writer, reader, searcher, true);
+        pool.launch();
+
     }
 }

@@ -38,7 +38,7 @@ public class PoolIndexing {
     public static Map<String, float[]> docEmbeddings;
 
 
-    public class WorkerIndexing implements Runnable {
+    private class WorkerIndexing implements Runnable {
         private List<Metadata> metadataSlice;   // worker slice of metadata rows
         private int numWorker;
 
@@ -47,7 +47,7 @@ public class PoolIndexing {
          * @param metadata List of Metadata objects representing each row of the metadata.csv file.
          * @param numWorker Worker ID.
          */
-        public WorkerIndexing(List<Metadata> metadata, int numWorker) {
+        private WorkerIndexing(List<Metadata> metadata, int numWorker) {
             this.metadataSlice = metadata;
             this.numWorker = numWorker;
         }
@@ -145,23 +145,8 @@ public class PoolIndexing {
         docEmbeddings = readDocEmbeddingsFloating();
 
         // create IndexWriter and configure it
-        Path indexPath = deleteFolder(INDEX_FOLDERNAME);
-        IndexWriterConfig config = new IndexWriterConfig(new StandardAnalyzer());
-        config.setSimilarity(similarity);
-        IndexWriter writer = null;
-
-        try {
-            writer = new IndexWriter(FSDirectory.open(indexPath), config);
-        } catch (CorruptIndexException e) {
-            System.out.println("CorruptIndexException while creating IndexWriter at " + indexPath.toString());
-            e.printStackTrace();
-        } catch (LockObtainFailedException e) {
-            System.out.println("LockObtainFailedException while creating IndexWriter at " + indexPath.toString());
-            e.printStackTrace();
-        } catch (IOException e) {
-            System.out.println("IOException while creating IndexWriter at " + indexPath.toString());
-            e.printStackTrace();
-        }
+        deleteFolder(INDEX_FOLDERNAME);
+        iwriter = createIndexWriter(INDEX_FOLDERNAME);
 
         // Create the ExecutorService
         final int numCores = Runtime.getRuntime().availableProcessors();
@@ -192,38 +177,39 @@ public class PoolIndexing {
 
 
         if (getReferences) {
-            try { writer.commit(); }
+            System.out.println("Adding references to the index...");
+            try { iwriter.commit(); }
             catch (IOException e) { e.printStackTrace(); return; }
 
             ReaderSearcher objReaderSearcher = new ReaderSearcher(
-                    Paths.get(writer.getDirectory().toString()), similarity);
+                    Paths.get(INDEX_FOLDERNAME), similarity);
             IndexReader reader = objReaderSearcher.reader();
             IndexSearcher searcher = objReaderSearcher.searcher();
 
-            ReferencesIndexing referencesIndexing = new ReferencesIndexing(writer, reader, searcher);
+            ReferencesIndexing referencesIndexing = new ReferencesIndexing(iwriter, reader, searcher, true);
             referencesIndexing.launch();
-        }
-
-        // close the writer
-        try {
-            writer.commit();
-            writer.close();
-        } catch (CorruptIndexException e) {
-            System.out.println("CorruptIndexException while closing the index writer");
-            e.printStackTrace();
-        } catch (IOException e) {
-            System.out.println("IOException while closing the index writer");
-            e.printStackTrace();
+        } else {
+            try {
+                iwriter.commit();
+                iwriter.close();
+            } catch (CorruptIndexException e) {
+                System.out.println("CorruptIndexException while closing the index writer");
+                e.printStackTrace();
+            } catch (IOException e) {
+                System.out.println("IOException while closing the index writer");
+                e.printStackTrace();
+            }
         }
     }
 
     public static void main(String[] args) {
         PoolIndexing pool = new PoolIndexing();
-        if (args.length == 0) {
-            pool.launch(false);
-        } else {
+        if (args.length > 0) {
             pool.launch(true);
+        } else {
+            pool.launch(false);
         }
+
     }
 
 }
