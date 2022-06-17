@@ -41,36 +41,36 @@
 \begin{frame}{Indexing and querying details}
     \begin{itemize}
         \item In the indexing process, \textit{title}, \textit{authors} (only surnames), \textit{abstract}, \textit{body} and \textit{references title and authors} fields were indexed.
-        \item Excluding Query 2, out approaches search in \textit{title}, \textit{abstract} and \textit{body} fields of each document. The \href{https://lucene.apache.org/core/6_0_0/queryparser/org/apache/lucene/queryparser/classic/MultiFieldQueryParser.html}{\texttt{MultiFieldQueryParser}} was used assigning weights to the fields.
+        \item Our approaches search in \textit{title}, \textit{abstract} and \textit{body} fields of each document. \href{https://lucene.apache.org/core/8_9_0/core/org/apache/lucene/search/BooleanQuery.html}{BooleanQuery} and \href{https://lucene.apache.org/core/7_4_0/core/org/apache/lucene/search/BoostQuery.html}{BoostQuery} were used for assigning weights to the fields.
+        \item \href{https://lucene.apache.org/core/9_0_0/core/org/apache/lucene/analysis/standard/StandardAnalyzer.html}{StandardAnalyzer} was used for parsing text and Language Model with Jelinek Mercer smoothing (\href{https://lucene.apache.org/core/8_6_2/core/org/apache/lucene/search/similarities/LMJelinekMercerSimilarity.html}{LMJelinekMercerSimilarity}) was used in indexing and searching.
         \item Indexing process and some computational-expensive queries are parallelized in order to reduce run-time.
     \end{itemize}
 \end{frame}
 
 {
 \setbeamerfont{frametitle}{size=\normalsize}
-\begin{frame}{Query 1. Language Model with Jelinek Mercer smoothing and query expansion based on probability theory and pseudo-relevance feedback}
+\begin{frame}{Query 1. LM with Jelinek Mercer smoothing and query expansion based on probability theory and pseudo-relevance feedback}
     \begin{itemize}
-        \item Apache Lucene automatically implements the LM model with Jelinek Mercer smoothing by configuring \href{https://lucene.apache.org/core/7_4_0/core/org/apache/lucene/index/IndexWriter.html}{\texttt{IndexWriter}} and \href{https://lucene.apache.org/core/8_0_0/core/org/apache/lucene/search/IndexSearcher.html}{\texttt{IndexSearcher}} with  \href{https://lucene.apache.org/core/8_6_2/core/org/apache/lucene/search/similarities/LMJelinekMercerSimilarity.html}{\texttt{LMJelinekMercerSimilarity}} class.
+        \item Initial results were computed with a boosted \href{https://lucene.apache.org/core/8_9_0/core/org/apache/lucene/search/BooleanQuery.html}{BooleanQuery} in \textit{title}, \textit{abstract} and \textit{body} fields.
         \item Once the $n$ documents are returned (our initial results), the re-ranking method is computed by considering that top $n$ documents conform the true relevant document set (pseudo-relevance feedback). Thus, from the Binary Independence Model (BIM) assumptions, we can compute the log-odd ratios of each term $t$:
         
         \[ c_t = \log \frac{|V_t| + 0.5}{|V| - |V_t| +1 } + \underbrace{\log \frac{N}{\text{df}_t}}_{\text{idf}_t} \] 
 
         where $V$ is the set of relevant documents, $V_t$ is the subset of $V$ the term $t$ appears in and  $\text{df}_t$ and $\text{idf}_t$ are the document frequency and inverse document frequency, respectively, of term $t$.
         
-        Then expand the original query $q$ with the top $m$ terms with highest odd ratios (where $m$ can be configured by the user).
+        Then expand the original query $q$ with the top $m$ terms with highest scores  (where $m$ can be configured by the user).
     \end{itemize}
 \end{frame}
 
 \begin{frame}{Query 2. Vector Space Model using TREC-COVID embeddings and computing KNN corrected with Rocchio \cite{salton1990improving}}
     \begin{itemize}
-        \item The TREC-COVID Dataset provides a collection of document embeddings computed by \href{https://arxiv.org/abs/2004.07180}{SPECTER transformer}.
-        \item Query embeddings were provided with the assignment.
-        \item Add to the base BooleanQuery a \href{https://lucene.apache.org/core/9_0_0/core/org/apache/lucene/search/KnnVectorQuery.html}{KnnVectorQuery} with each d
+        \item The TREC-COVID Dataset provides a collection of document embeddings computed by \href{https://arxiv.org/abs/2004.07180}{SPECTER transformer}. Query embeddings were provided with the assignment. 
+        \item Initial results were computed with a \href{https://lucene.apache.org/core/8_9_0/core/org/apache/lucene/search/BooleanQuery.html}{BooleanQuery} in aforementioned fields with a \href{https://lucene.apache.org/core/9_0_0/core/org/apache/lucene/search/KnnVectorQuery.html}{KnnVectorQuery} using query embeddings.
         \item Once the top $n$ documents are retrieved, we apply pseudo-relevance feedback and consider these top $n$ documents are the true relevant documents.
         \item Then correct the initial query $\vec{q}_0$ with Rocchio algorithm:
         \[ \vec{q}_m = \alpha \vec{q}_0 + \beta \frac{1}{|D_r|} \sum_{\vec{d}\in D_r}\vec{d} - \gamma \frac{1}{|D_{nr}|} \sum_{d\in D_{nr}} \vec{d}, \qquad \alpha, \beta, \gamma \in [0,1]\]
-        where $\alpha$, $\beta$ and $\gamma$ are parameters that can be fixed by the user and $D_r$ and $D_{nr}$ are the set of relevant and non-relevant documents, respectively.
-        \item Finally compute again cosine similarity between the entire document collection and corrected query embeddings $\vec{q}_m$.
+        where $\alpha=0.5$, $\beta=0.4$ and $\gamma=0.1$ are parameters that can be fixed by the user and $D_r$ and $D_{nr}$ are the set of relevant and non-relevant documents, respectively.
+        \item Finally compute again the \href{https://lucene.apache.org/core/8_9_0/core/org/apache/lucene/search/BooleanQuery.html}{BooleanQuery} and \href{https://lucene.apache.org/core/9_0_0/core/org/apache/lucene/search/KnnVectorQuery.html}{KnnVectorQuery} between the entire document collection and corrected query embeddings $\vec{q}_m$.
     \end{itemize}
 \end{frame}
 
@@ -83,7 +83,7 @@
         \begin{itemize}
             \item \textbf{Improvement}: Instead of using 1 in position $(i, j)$ if $d_i$ references $d_j$, use the number of times $d_i$ references $d_j$.
         \end{itemize}
-        \item Proceed by retrieving the top $n$ documents based on LM and multi-field query parser.
+        \item Proceed by retrieving the top $n$ documents based on LM and the basic \href{https://lucene.apache.org/core/8_9_0/core/org/apache/lucene/search/BooleanQuery.html}{BooleanQuery}.
         \item Weight the top $n$ documents score by the Page Rank to obtain a new ranking.
     \end{itemize}
 \end{frame}
@@ -93,8 +93,9 @@
 
 \begin{frame}{Results and conclusions}
     \begin{itemize}
-        \item Using a Intel i7-8550U processor with 4 cores, \textcolor{blue}{indexing time} was about 345.078s.
-        \item Using an Intel i7-8770U processor with 12 cores, \textcolor{blue}{references searching} and matching with the created index was done in, approximately, 20 minutes.
+        \item Using a Intel i7-8550U processor with 16GB RAM and 4 cores, \textcolor{blue}{indexing time} was about 291.901s.
+        \item Using an Intel i7-9750H processor with 16GB RAM and 12 cores, \textcolor{blue}{references searching} and matching with the created index was done in, approximately, 20 minutes.
+        \item \textcolor{orange}{Note}: \href{https://lucene.apache.org/core/7_0_1/core/org/apache/lucene/search/similarities/BM25Similarity.html}{BM25 Okapi} and \href{https://lucene.apache.org/core/6_5_0/core/org/apache/lucene/search/PhraseQuery.html}{PhraseQuery} were explored in this assignament but no better results were achieved.
     \end{itemize}
     
     \begin{table}
@@ -109,7 +110,7 @@
             \midrule
             \makecell[c]{KNN \\ with Rocchio} & 0.44399998 (119.451s) &  0.062999986 (120.272s) & 0.012579029 (127.94) \\
             \midrule
-            \makecell[c]{Page Rank} & & & \\
+            \makecell[c]{Page Rank} &  0.4299998 (8.081s) & 0.062799986 (18.045s) & 0.0126155 (14.756s)\\
         \end{tabular}
     \end{table}
 
@@ -121,8 +122,13 @@
         \item In this assignment we prioritized the exploring of different IR models for academic purposes.
         \item Explore different weights per field in the \href{https://lucene.apache.org/core/8_9_0/core/org/apache/lucene/search/BooleanQuery.html}{BooleanQuery}:
         \begin{itemize}
-            \item When $n$ is big,
+            \item When $n$ and $k$ are big, it might be a good idea to decrease \textit{body field} weight, since its content might introduce noisy-information.
+            \item When $n$ and $k$ are small, as we are cutting results at $k$, it might be interesting to give, at least, the same weights for all fields or even giving more weight to \textit{body field}.
+            \item To automatize this method, some function of $n$ can be defined to determine \textit{body field} weights.
         \end{itemize}
+        \item Explore different query types. 
+        \item Use more than 1 iteration in Rocchio correction and Probabilistic Feedback.
+        \item Considering using more information about topics in the XML file.
     \end{itemize}
     
 \end{frame}

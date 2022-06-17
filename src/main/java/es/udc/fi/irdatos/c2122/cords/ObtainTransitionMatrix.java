@@ -91,12 +91,18 @@ public class ObtainTransitionMatrix {
                 System.out.println("Worker " + workerID + " computing page rank for topic " + topicID);
 
                 for (TopDocument topDocument : initialResultsTopic) {
+                    if (!(new File(ReferencesIndexing.storingFolder + "/" + topDocument.cordID())).exists()) {
+                        continue;
+                    }
                     String[] references;
                     try {
                         references = new String(Files.readAllBytes(Paths.get(ReferencesIndexing.storingFolder, topDocument.cordID()))).split("\n");
                     } catch (IOException e) { e.printStackTrace(); return;}
 
                     for (String reference : references) {
+                        if (reference.length() == 0) {
+                            continue;
+                        }
                         String refID = reference.split(" ")[0];
                         int count = Integer.parseInt(reference.split(" ")[1]);
                         if (docs2index.containsKey(refID)) {
@@ -126,7 +132,7 @@ public class ObtainTransitionMatrix {
                 for (int i=0; i < initialResultsTopic.size(); i++) {
                     TopDocument initialDocument = initialResultsTopic.get(i);
                     double initialScore = initialDocument.score();
-                    double newScore = pageRank.getEntry(docs2index.get(initialDocument.docID())) * initialScore;
+                    double newScore = pageRank.getEntry(docs2index.get(initialDocument.cordID())) * initialScore;
                     newResultsTopics.add(new TopDocument(initialDocument.cordID(), newScore, topicID));
                 }
                 Collections.sort(newResultsTopics, new TopDocumentOrder());
