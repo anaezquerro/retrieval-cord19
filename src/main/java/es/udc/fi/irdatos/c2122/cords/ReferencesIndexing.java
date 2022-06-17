@@ -45,6 +45,7 @@ public class ReferencesIndexing {
      */
     public String parse(String text) {
         String parsedText = text.replaceAll("\\[|\\]|\\(|\\)|/|-|\\'|\\:|\\\\|\"|\\}|\\{|\\*|\\?|\\!|\\^|\\~|\\+|\\;", " ");
+        parsedText = " " + parsedText;
         parsedText = parsedText.replaceAll(" and| or| the| at| of| a| in| OR| AND", " ");
         parsedText = String.join(" ", parsedText.strip().split("\\s+"));
         return parsedText;
@@ -226,7 +227,6 @@ public class ReferencesIndexing {
                                 .filter(x -> !docRefTitleWords.contains(x)).count();
                         if (mismatches > 0.1*reference.title().split("\\s+").length) {continue;}
 
-                        System.out.println(reference.title() + ": " + parse(ireader.document(docRefID).get("title")));
                         referencesBuilder.append(
                                 ireader.document(docRefID).get("docID") + " " + reference.count() + "\n");
                         j++;
@@ -295,7 +295,7 @@ public class ReferencesIndexing {
         // end the executor
         executor.shutdown();
         try {
-            executor.awaitTermination(1, TimeUnit.HOURS);
+            executor.awaitTermination(4, TimeUnit.HOURS);
         } catch (final InterruptedException e) {
             e.printStackTrace();
             System.exit(-2);
