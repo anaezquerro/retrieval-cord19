@@ -180,7 +180,9 @@ public class QueryEvaluation {
 
         // Make the queries for each topic query
         QueryComputation queryTopics = new QueryComputation(ireader, isearcher, topics, n);
+        long start = System.currentTimeMillis();
         Map<Integer, List<TopDocument>> topicsTopDocs = queryTopics.query(typeQuery);
+        long end = System.currentTimeMillis();
 
         // Generate the results
         String filenameResults = "round5-submission.txt";
@@ -188,6 +190,7 @@ public class QueryEvaluation {
 
         // Compute MAP@k metric
         float mAPk = meanAveragePrecision(topicsTopDocs, topicRelevDocs, k);
+        System.out.println("Execution time (seconds): " + (end-start)*0.001);
     }
 
 

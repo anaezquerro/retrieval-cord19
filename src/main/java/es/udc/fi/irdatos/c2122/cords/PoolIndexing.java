@@ -205,11 +205,18 @@ public class PoolIndexing {
 
     public static void main(String[] args) {
         PoolIndexing pool = new PoolIndexing();
+        long start;
+        long end;
         if (args.length > 0) {
+            start = System.currentTimeMillis();
             pool.launch(true);
+            end = System.currentTimeMillis();
         } else {
+            start = System.currentTimeMillis();
             pool.launch(false);
+            end = System.currentTimeMillis();
         }
+        System.out.println("Indexing time (seconds): " + (end-start)*0.001);
 
     }
 

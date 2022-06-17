@@ -144,7 +144,7 @@ public class QueryComputation {
      */
     private Map<Integer, List<TopDocument>> knnRocchioQuery(float alpha, float beta, float gamma) {
         // Compute first results
-        Map<Integer, List<TopDocument>> initialResults = knnQuery(queryEmbeddings);
+        Map<Integer, List<TopDocument>> initialResults = obtainTop(knnQuery(queryEmbeddings), 100);
 
         Map<Integer, ArrayRealVector> initialQueryEmbeddings = queryEmbeddings.entrySet().stream()
                 .collect(Collectors.toMap(Map.Entry::getKey, x -> floatArray2RealVector(x.getValue())));
@@ -162,7 +162,7 @@ public class QueryComputation {
                 .collect(Collectors.toMap(Map.Entry::getKey, x -> realVector2floatArray(x.getValue())));
 
         // Recompute query
-        return knnQuery(newQueryEmbeddingsFloat);
+        return obtainTopN(knnQuery(newQueryEmbeddingsFloat));
     }
 
     private ArrayRealVector computeRocchio(ArrayRealVector queryEmbedding, List<TopDocument> relevant,
