@@ -32,26 +32,28 @@ public class QueryComputation {
     private static IndexReader ireader;
     private static float titleBoost = 1F;
     private static float abstractBoost = 1F;
-    private static float bodyBoost = 1F;
+    private static float bodyBoost = 1.1F;
     private static Map<Integer, float[]> queryEmbeddings = readQueryEmbeddingsFloating();
+    private static Map<String, ArrayRealVector> docEmbeddings;
+
 
     public QueryComputation(IndexReader ireader, IndexSearcher isearcher, Topics.Topic[] topics, int n) {
         this.ireader = ireader;
         this.isearcher = isearcher;
         this.topics = topics;
         this.n = n;
-        if (n > 10) {
-            bodyBoost = 1F;
-        }
+        if (n == 100) {titleBoost = 1F; abstractBoost = 1F; bodyBoost = 1.1F; }
+        else if (n == 1000) {titleBoost = 1F; abstractBoost = 1F; bodyBoost = 1.3F;}
     }
 
     public Map<Integer, List<TopDocument>> query(int typeQuery) {
         if (typeQuery == 0) {
             return probabilisticQuery();
         } else if (typeQuery == 1) {
+            docEmbeddings = readDocEmbeddings();
             return knnRocchioQuery(0.5F, 0.4F, 0.1F);
         } else if (typeQuery == 2) {
-            return cosineSimilarityPageRank(0.0F, 1000);
+            return queryPageRank(0.0F, 1000);
         }
         else {
             System.out.println("No queries have been applied");
@@ -60,59 +62,18 @@ public class QueryComputation {
 
     }
 
-    private static Map<Integer, List<TopDocument>> multifieldQuery() {
-        Map<Integer, List<TopDocument>> topicsTopDocs = new HashMap<>();
-
-        // Create field weights (initially they are set to constant values but in future approaches it might be
-        // useful to configure them as a function of the number of documents to be returned)
-        Map<String, Float> fields = Map.of("title", titleBoost, "abstract", abstractBoost, "body", bodyBoost);
-
-        // Create QueryParser with StandardAnalyzer
-        QueryParser parser = new MultiFieldQueryParser(fields.keySet().toArray(new String[0]), new StandardAnalyzer(), fields);
-
-        // Loop for each topic to extract topicID and query
-        for (Topics.Topic topic : topics) {
-
-            // parse the query text
-            Query query;
-            try {
-                query = parser.parse(topic.query());
-            } catch (ParseException e) {
-                System.out.println("ParseException while constructing the query for the topic " + topic.number());
-                e.printStackTrace();
-                return null;
-            }
-
-            // search in the index
-            TopDocs topDocs;
-            try {
-                topDocs = isearcher.search(query, n);
-            } catch (IOException e) {
-                System.out.println("IOException while searching documents of the topic ");
-                e.printStackTrace();
-                return null;
-            }
-
-            // add the top documents to the map object
-            System.out.println(topDocs.totalHits + " results for the query: " + topic.query() + " [topic=" + topic.number() + "]");
-            List<TopDocument> topDocuments = coerce(topDocs, topic.number());
-            topicsTopDocs.put(topic.number(), topDocuments);
-        }
-        return obtainTopN(topicsTopDocs);
-    }
-
     private static Map<Integer, List<TopDocument>> probabilisticQuery() {
         Map<Integer, List<TopDocument>> initialResults = new HashMap<>();
-        float[] boosts = new float[] {titleBoost, abstractBoost, bodyBoost};
 
         // To compute the initial results, we use the same query text for all fields (title, abstract and body)
         for (Topics.Topic topic : topics) {
             String[] initialTextQueries = new String[] {topic.query(), topic.query(), topic.query()};
             List<Query> queries = parseQueries(new String[] {"title", "abstract", "body"}, initialTextQueries);
-            TopDocs topDocs = booleanQueries(queries, queryEmbeddings.get(topic.number()));
+            TopDocs topDocs = booleanQueries(queries);
             List<TopDocument> topDocuments = coerce(topDocs, topic.number());
             initialResults.put(topic.number(), topDocuments);
         }
+        initialResults = obtainTop(initialResults, 100);
 
         ProbabilityFeedback probs = new ProbabilityFeedback(ireader, initialResults, 1);
         Map<Integer, List<String>> newTitleTerms = probs.getProbabilities("title");
@@ -129,7 +90,7 @@ public class QueryComputation {
             List<Query> queries = parseQueries(new String[] {"title", "abstract", "body"}, newTextQueries);
 
             // Create boolean query
-            TopDocs topDocs = booleanQueries(queries, queryEmbeddings.get(topic.number()));
+            TopDocs topDocs = booleanQueries(queries);
             List<TopDocument> topDocuments = coerce(topDocs, topic.number());
             topicsTopDocs.put(topic.number(), topDocuments);
         }
@@ -187,10 +148,16 @@ public class QueryComputation {
 
         Map<Integer, ArrayRealVector> initialQueryEmbeddings = queryEmbeddings.entrySet().stream()
                 .collect(Collectors.toMap(Map.Entry::getKey, x -> floatArray2RealVector(x.getValue())));
-        PoolRocchio poolRocchio = new PoolRocchio(initialResults, initialQueryEmbeddings, alpha, beta, gamma);
-        poolRocchio.launch();
 
-        Map<Integer, ArrayRealVector> newQueryEmbeddings = poolRocchio.getNewQueryEmbeddings();
+
+        Map<Integer, ArrayRealVector> newQueryEmbeddings = new HashMap<>();
+        for (Topics.Topic topic : topics) {
+            newQueryEmbeddings.put(topic.number(),
+                    computeRocchio(
+                            initialQueryEmbeddings.get(topic.number()),
+                            initialResults.get(topic.number()),
+                            alpha, beta, gamma));
+        }
         Map<Integer, float[]> newQueryEmbeddingsFloat = newQueryEmbeddings.entrySet().stream()
                 .collect(Collectors.toMap(Map.Entry::getKey, x -> realVector2floatArray(x.getValue())));
 
@@ -198,40 +165,54 @@ public class QueryComputation {
         return knnQuery(newQueryEmbeddingsFloat);
     }
 
-    private Map<Integer, List<TopDocument>> cosineSimilarityPageRank(float alpha, int iterations) {
+    private ArrayRealVector computeRocchio(ArrayRealVector queryEmbedding, List<TopDocument> relevant,
+                                           float alpha, float beta, float gamma) {
+        // Obtain only docIDs of relevant documents
+        List<String> relevantDocs = relevant.stream().map(doc -> doc.cordID()).toList();
 
-        // Obtain initial results
-        Map<Integer, List<TopDocument>> initialResults = readCosineSimilarities("cosineSimilarity", true);
-        initialResults = obtainTopN(initialResults);
+        // Read document embeddings file to compute the new query
+        // relevantSum = vector sum of relevant documents, nonRelevantSum = vector sum of non relevant documents
+        // relevantCount = number of relevant documents, nonRelevantCount = number of non relevant documents
+        ArrayRealVector relevantSum = new ArrayRealVector(CollectionReader.EMBEDDINGS_DIMENSIONALITY);
+        ArrayRealVector nonRelevantSum = new ArrayRealVector(CollectionReader.EMBEDDINGS_DIMENSIONALITY);
+        int relevantCount = 0;
+        int nonRelevantCount = 0;
 
-        // Obtain results of simpleQuery
-        Map<Integer, List<TopDocument>> simpleQueryResults = multifieldQuery();
-
-        // Merge both results
-        Map<Integer, List<TopDocument>> mergedResults = new HashMap<>();
-        for (Integer topic : initialResults.keySet()) {
-            Map<String, TopDocument> mergedresultsTopic = new HashMap<>();
-            for (TopDocument topDocument : initialResults.get(topic)) {
-                mergedresultsTopic.put(topDocument.cordID(), topDocument);
+        // Iterate over the embeddings document (is preferable storing similarities, not embeddings vectors)
+        for (String docID : docEmbeddings.keySet()) {
+            ArrayRealVector docEmbedding = docEmbeddings.get(docID);
+            if (relevantDocs.contains(docID)) {
+                relevantSum = relevantSum.add(docEmbedding);
+                relevantCount++;
+            } else {
+                nonRelevantSum = nonRelevantSum.add(docEmbedding);
+                nonRelevantCount++;
             }
-            for (TopDocument topDocument : simpleQueryResults.get(topic)) {
-                if (mergedresultsTopic.containsKey(topDocument.cordID())) {
-                    double oldScore = mergedresultsTopic.get(topDocument.cordID()).score();
-                    mergedresultsTopic.get(topDocument.cordID()).setScore(oldScore + topDocument.score());
-                } else {
-                    mergedresultsTopic.put(topDocument.cordID(), topDocument);
-                }
-            }
-            List<TopDocument> topDocuments = new ArrayList<>();
-            topDocuments.addAll(mergedresultsTopic.values());
-            Collections.sort(topDocuments, new TopDocumentOrder());
-            mergedResults.put(topic, topDocuments);
         }
 
-        mergedResults = obtainTopN(mergedResults);
+        // Compute the new query
+        ArrayRealVector newQueryEmbedding = (ArrayRealVector) queryEmbedding.mapMultiply((double)alpha);
+        newQueryEmbedding = newQueryEmbedding.add(relevantSum.mapMultiply((double)(beta/relevantCount)));
+        newQueryEmbedding = newQueryEmbedding.subtract(nonRelevantSum.mapMultiply((double)(gamma/nonRelevantCount)));
+
+        return newQueryEmbedding;
+    }
+
+    private Map<Integer, List<TopDocument>> queryPageRank(float alpha, int iterations) {
+        Map<Integer, List<TopDocument>> initialResults = new HashMap<>();
+
+        // To compute the initial results, we use the same query text for all fields (title, abstract and body)
+        for (Topics.Topic topic : topics) {
+            String[] initialTextQueries = new String[] {topic.query(), topic.query(), topic.query()};
+            List<Query> queries = parseQueries(new String[] {"title", "abstract", "body"}, initialTextQueries);
+            TopDocs topDocs = booleanQueries(queries);
+            List<TopDocument> topDocuments = coerce(topDocs, topic.number());
+            initialResults.put(topic.number(), topDocuments);
+        }
+        initialResults = obtainTopN(initialResults);
+
         // Compute again using page rank
-        ObtainTransitionMatrix poolPageRank = new ObtainTransitionMatrix(isearcher, ireader, mergedResults,
-                alpha, iterations);
+        ObtainTransitionMatrix poolPageRank = new ObtainTransitionMatrix(isearcher, ireader, initialResults, alpha, iterations);
         Map<Integer, List<TopDocument>> newResults = poolPageRank.launch();
         return newResults;
     }
@@ -240,6 +221,15 @@ public class QueryComputation {
         topicsTopDocs = topicsTopDocs.entrySet().stream().peek(
                 result ->  {
                     result.setValue(result.getValue().subList(0, n));
+                }
+        ).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        return topicsTopDocs;
+    }
+
+    private static Map<Integer, List<TopDocument>> obtainTop(Map<Integer, List<TopDocument>> topicsTopDocs, int topN) {
+        topicsTopDocs = topicsTopDocs.entrySet().stream().peek(
+                result ->  {
+                    result.setValue(result.getValue().subList(0, topN));
                 }
         ).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
         return topicsTopDocs;
@@ -275,13 +265,14 @@ public class QueryComputation {
     }
 
 
-    private static TopDocs booleanQueries(List<Query> queries, float[] queryEmbedding) {
+    private static TopDocs booleanQueries(List<Query> queries) {
+        float[] boosts = new float[] {titleBoost, abstractBoost, bodyBoost};
+
         BooleanQuery.Builder booleanQueryBuilder = new BooleanQuery.Builder();
 
-        for (Query query : queries ) {
-            booleanQueryBuilder.add(query, BooleanClause.Occur.MUST);
+        for (int i = 0; i < queries.size(); i++) {
+            booleanQueryBuilder.add(new BoostQuery(queries.get(i), boosts[i]), BooleanClause.Occur.MUST);
         }
-        booleanQueryBuilder.add(new KnnVectorQuery("embedding", queryEmbedding, n), BooleanClause.Occur.SHOULD);
         BooleanQuery booleanQuery = booleanQueryBuilder.build();
 
         TopDocs topDocs;

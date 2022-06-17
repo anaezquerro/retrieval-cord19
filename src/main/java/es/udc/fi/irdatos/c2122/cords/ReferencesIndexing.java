@@ -35,7 +35,7 @@ public class ReferencesIndexing {
     IndexReader ireader;
     int m = 2;
     int numAuthors = 5;
-    String storingFolder = "references";
+    public static String storingFolder = "references";
     boolean search;
 
     /**

@@ -74,37 +74,6 @@ public class ObtainTransitionMatrix {
             this.newResultsSlice = new HashMap<>();
         }
 
-        private Map<String, Integer> parseReferencesCount(Article article) {
-            List<Article.Content> body_text = article.body_text();
-            Map<String, Integer> referencesCount = new HashMap<>();
-            for (Article.Content paragraph : body_text) {
-                List<Article.Content.Cite> cites = paragraph.cite_spans();
-                for (Article.Content.Cite cite : cites) {
-                    if (!referencesCount.containsKey(cite.ref_id())) {
-                        referencesCount.put(cite.ref_id(), 1);
-                    } else {
-                        int value = referencesCount.get(cite.ref_id());
-                        referencesCount.put(cite.ref_id(), value + 1);
-                    }
-                }
-            }
-            Map<String, Article.Reference> bib_entries = article.bib_entries();
-            for (String bib_entry : bib_entries.keySet()) {
-                if (!referencesCount.containsKey(bib_entry)) {
-                    referencesCount.put(bib_entry, 1);
-                } else {
-                    int value = referencesCount.get(bib_entry);
-                    referencesCount.put(bib_entry, value + 1);
-                }
-            }
-            return referencesCount;
-        }
-
-        public static String parse(String text) {
-            String parsedText = text.replaceAll("\\[|\\]|\\(|\\)|/|-|\\'|\\:|\\\\|\"|\\}|\\{|\\*|\\?|\\!|\\^|\\~|\\+|\\;", " ");
-            parsedText = parsedText.replaceAll("and|or|the|at|of|a|in|OR|AND", "");
-            return parsedText;
-        }
 
         @Override
         public void run() {
@@ -121,119 +90,23 @@ public class ObtainTransitionMatrix {
 
                 System.out.println("Worker " + workerID + " computing page rank for topic " + topicID);
 
-                // Explore metadata rows to search article results for the topic
-                for (Metadata rowMetadata : metadata) {
-                    if (!docs2index.keySet().contains(rowMetadata.cordUid())) {
-                        continue;
-                    }
-
-                    // Read the article of the path
-                    Article article;
+                for (TopDocument topDocument : initialResultsTopic) {
+                    String[] references;
                     try {
-                        if (rowMetadata.pmcFile().length() != 0) {
-                            article = CollectionReader.ARTICLE_READER.readValue(CollectionReader.DEFAULT_COLLECTION_PATH
-                                    .resolve(rowMetadata.pmcFile()).toFile());
-                        } else if (rowMetadata.pdfFiles().size() != 0) {
-                            article = CollectionReader.ARTICLE_READER.readValue(CollectionReader.DEFAULT_COLLECTION_PATH
-                                    .resolve(rowMetadata.pdfFiles().get(0)).toFile());
-                        } else {
-                            continue;
-                        }
-                    } catch (IOException e) {
-                        System.out.println("IOException while reading JSON file " + rowMetadata.pmcFile());
-                        e.printStackTrace();
-                        return;
-                    }
+                        references = new String(Files.readAllBytes(Paths.get(ReferencesIndexing.storingFolder, topDocument.cordID()))).split("\n");
+                    } catch (IOException e) { e.printStackTrace(); return;}
 
-                    // Now search in references and get their counts
-                    Map<String, Article.Reference> references = article.bib_entries();
-                    if (references.size() == 0) {
-                        continue;
-                    }
-
-                    Map<String, Integer> referencesCount = parseReferencesCount(article);
-
-                    for (Map.Entry<String, Article.Reference> reference : references.entrySet()) {
-                        String parsedTitle = parse(reference.getValue().title());
-                        List<String> authors = reference.getValue().authors().stream().map(x -> parse(x.last())).toList();
-                        if ((parsedTitle.length() == 0) ||
-                                (authors.size() == 0) ||
-                                (String.join(" ", authors).strip().length() == 0)) {
-                            continue;
-                        }
-
-                        BooleanQuery.Builder booleanQueryBuilder = new BooleanQuery.Builder();
-
-                        // Search references title in the index
-                        QueryParser parser = new QueryParser("title", new StandardAnalyzer());
-                        Query query;
-                        try {
-                            query = parser.parse(parsedTitle);
-                        } catch (ParseException e) {
-                            System.out.println("ParseException while constructing the query for reference " +
-                                    "in article " + rowMetadata.cordUid() + ": " + parsedTitle);
-                            System.out.println(reference.getValue().title());
-                            e.printStackTrace();
-                            return;
-                        }
-
-                        booleanQueryBuilder.add(query, BooleanClause.Occur.MUST);
-
-                        // Query for reference authors
-                        QueryParser parserAuthor = new QueryParser("authors", new StandardAnalyzer());
-                        Query queryAuthor;
-                        try {
-                            queryAuthor = parserAuthor.parse(String.join(" ", authors));
-                        } catch (ParseException e) {
-                            e.printStackTrace();
-                            System.out.println("ParseException while constructing the query for reference author " +
-                                    "in article " + rowMetadata.cordUid() + ": " + authors);
-                            return;
-                        }
-                        booleanQueryBuilder.add(queryAuthor, BooleanClause.Occur.MUST);
-
-                        // Build query and execute
-                        BooleanQuery booleanQuery = booleanQueryBuilder.build();
-
-                        // Make the query
-                        TopDocs topDocs;
-                        try {
-                            topDocs = isearcher.search(booleanQuery, 1);
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                            return;
-                        }
-
-                        for (int i = 0; i < Math.min(topDocs.scoreDocs.length, topDocs.totalHits.value); i++) {
-                            try {
-                                String docID = ireader.document(topDocs.scoreDocs[i].doc).get("docID");
-                                String title = ireader.document(topDocs.scoreDocs[i].doc).get("title");
-                                List<Boolean> coincidences = Arrays.stream(parse(title).split(" ")).map(x -> parsedTitle.contains(x))
-                                        .toList();
-                                int mismatches = Collections.frequency(coincidences, false);
-                                if (mismatches > 0.15*coincidences.size()) {
-                                    continue;
-                                }
-                                if (docs2index.containsKey(docID)) {
-                                    transitionMatrix.setEntry(
-                                            docs2index.get(rowMetadata.cordUid()),
-                                            docs2index.get(docID),
-                                            referencesCount.get(reference.getKey())
-                                    );
-                                }
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                                return;
-                            }
+                    for (String reference : references) {
+                        String refID = reference.split(" ")[0];
+                        int count = Integer.parseInt(reference.split(" ")[1]);
+                        if (docs2index.containsKey(refID)) {
+                            transitionMatrix.setEntry(docs2index.get(topDocument.cordID()), docs2index.get(refID), count);
                         }
                     }
                 }
 
                 // Matrix normalization
                 transitionMatrix = normalize(transitionMatrix);
-                for (int i=0; i < transitionMatrix.getRowDimension(); i++) {
-                    double norm = transitionMatrix.getRowVector(i).getL1Norm();
-                }
 
                 // Compute page rank
                 ArrayRealVector pageRank = new ArrayRealVector(
@@ -253,7 +126,7 @@ public class ObtainTransitionMatrix {
                 for (int i=0; i < initialResultsTopic.size(); i++) {
                     TopDocument initialDocument = initialResultsTopic.get(i);
                     double initialScore = initialDocument.score();
-                    double newScore = pageRank.getEntry(docs2index.get(initialDocument.docID())) * initialScore + initialScore;
+                    double newScore = pageRank.getEntry(docs2index.get(initialDocument.docID())) * initialScore;
                     newResultsTopics.add(new TopDocument(initialDocument.cordID(), newScore, topicID));
                 }
                 Collections.sort(newResultsTopics, new TopDocumentOrder());
