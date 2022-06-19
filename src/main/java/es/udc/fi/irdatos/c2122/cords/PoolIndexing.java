@@ -1,15 +1,11 @@
 package es.udc.fi.irdatos.c2122.cords;
 
 import es.udc.fi.irdatos.c2122.schemas.Metadata;
-import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.*;
 import org.apache.lucene.index.*;
 import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.similarities.BM25Similarity;
 import org.apache.lucene.search.similarities.LMJelinekMercerSimilarity;
 import org.apache.lucene.search.similarities.Similarity;
-import org.apache.lucene.store.FSDirectory;
-import org.apache.lucene.store.LockObtainFailedException;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -44,7 +40,7 @@ public class PoolIndexing {
         private int numWorker;
 
         /**
-         * Subclass of a Thread Proccess of the indexing Pool.
+         * Subclass of a Thread Process of the indexing Pool.
          * @param metadata List of Metadata objects representing each row of the metadata.csv file.
          * @param numWorker Worker ID.
          */
@@ -54,7 +50,7 @@ public class PoolIndexing {
         }
 
         /** 
-        * When the thread starts its tasks, it is in charge of indexing the metadata fields (docID, title, abstract) 
+        * When the thread starts its tasks, it is in charge of indexing the metadata fields (cordID, title, abstract)
          * and the article content referenced in the PMC and PDF paths.
          */
         @Override
@@ -69,7 +65,7 @@ public class PoolIndexing {
                 Document doc = new Document();
 
                 // Add rowMetadata UID as stored field
-                doc.add(new StoredField("docID", rowMetadata.cordUid()));
+                doc.add(new StoredField("cordID", rowMetadata.cordUid()));
 
                 // Add title information as stored, tokenized and term-vectorized
                 FieldType titleFieldType = new FieldType();
@@ -109,16 +105,12 @@ public class PoolIndexing {
                 authorsFieldType.setStoreTermVectors(false);
                 doc.add(new Field("authors", parsedArticle.authors(), authorsFieldType));
 
-                // Add PMC or PDF file as stored (it will be useful for computing PageRank)
-                FieldType fileFieldType = new FieldType();
-                fileFieldType.setStored(true);
-                fileFieldType.setTokenized(false);
-                fileFieldType.setIndexOptions(IndexOptions.NONE);
-                if (rowMetadata.pmcFile().length() != 0) {
-                    doc.add(new Field("file", rowMetadata.pmcFile(), fileFieldType));
-                } else {
-                    doc.add(new Field("file", rowMetadata.pdfFiles().get(0), fileFieldType));
-                }
+                // Add parsed references as stored file
+                FieldType refFieldType = new FieldType();
+                refFieldType.setStored(true);
+                refFieldType.setTokenized(false);
+                refFieldType.setIndexOptions(IndexOptions.NONE);
+                doc.add(new Field("references", parsedArticle.textReferences(), refFieldType));
 
                 // write the document in the index
                 try {
@@ -187,7 +179,7 @@ public class PoolIndexing {
             IndexReader reader = objReaderSearcher.reader();
             IndexSearcher searcher = objReaderSearcher.searcher();
 
-            ReferencesIndexing referencesIndexing = new ReferencesIndexing(iwriter, reader, searcher, true);
+            PageRank referencesIndexing = new PageRank(iwriter, reader, searcher, true);
             referencesIndexing.launch();
         } else {
             try {

@@ -1,48 +1,27 @@
 package es.udc.fi.irdatos.c2122.cords;
 
 
-import com.ctc.wstx.exc.WstxOutputException;
-import es.udc.fi.irdatos.c2122.schemas.Article;
 import es.udc.fi.irdatos.c2122.schemas.Metadata;
 import es.udc.fi.irdatos.c2122.schemas.TopDocument;
 import es.udc.fi.irdatos.c2122.schemas.TopDocumentOrder;
-import org.apache.commons.io.FileUtils;
-import org.apache.commons.math3.exception.OutOfRangeException;
 import org.apache.commons.math3.linear.ArrayRealVector;
 import org.apache.commons.math3.linear.MatrixUtils;
 import org.apache.commons.math3.linear.RealMatrix;
 import org.apache.commons.math3.linear.RealVector;
-import org.apache.commons.math3.util.MathUtils;
-import org.apache.lucene.analysis.standard.StandardAnalyzer;
-import org.apache.lucene.document.Document;
-import org.apache.lucene.document.Field;
-import org.apache.lucene.document.StoredField;
-import org.apache.lucene.document.TextField;
 import org.apache.lucene.index.*;
-import org.apache.lucene.queryparser.classic.ParseException;
-import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.*;
-import org.apache.lucene.search.similarities.BM25Similarity;
-import org.apache.lucene.store.FSDirectory;
-import org.apache.lucene.store.LockObtainFailedException;
 
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.lang.reflect.Array;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static es.udc.fi.irdatos.c2122.cords.AuxiliarFunctions.coalesce;
 import static es.udc.fi.irdatos.c2122.cords.CollectionReader.readMetadata;
-import static es.udc.fi.irdatos.c2122.cords.CollectionReader.streamDocEmbeddings;
 
 public class ObtainTransitionMatrix {
     double alpha;
@@ -91,12 +70,12 @@ public class ObtainTransitionMatrix {
                 System.out.println("Worker " + workerID + " computing page rank for topic " + topicID);
 
                 for (TopDocument topDocument : initialResultsTopic) {
-                    if (!(new File(ReferencesIndexing.storingFolder + "/" + topDocument.cordID())).exists()) {
+                    if (!(new File(PageRank.storingFolder + "/" + topDocument.cordID())).exists()) {
                         continue;
                     }
                     String[] references;
                     try {
-                        references = new String(Files.readAllBytes(Paths.get(ReferencesIndexing.storingFolder, topDocument.cordID()))).split("\n");
+                        references = new String(Files.readAllBytes(Paths.get(PageRank.storingFolder, topDocument.cordID()))).split("\n");
                     } catch (IOException e) { e.printStackTrace(); return;}
 
                     for (String reference : references) {
@@ -132,7 +111,7 @@ public class ObtainTransitionMatrix {
                 for (int i=0; i < initialResultsTopic.size(); i++) {
                     TopDocument initialDocument = initialResultsTopic.get(i);
                     double initialScore = initialDocument.score();
-                    double newScore = pageRank.getEntry(docs2index.get(initialDocument.cordID())) * initialScore;
+                    double newScore = pageRank.getEntry(docs2index.get(initialDocument.cordID())) * initialScore + initialScore;
                     newResultsTopics.add(new TopDocument(initialDocument.cordID(), newScore, topicID));
                 }
                 Collections.sort(newResultsTopics, new TopDocumentOrder());

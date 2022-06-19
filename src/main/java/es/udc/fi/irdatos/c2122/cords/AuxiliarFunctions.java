@@ -6,9 +6,6 @@ import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
-import org.apache.lucene.queryparser.classic.ParseException;
-import org.apache.lucene.queryparser.classic.QueryParser;
-import org.apache.lucene.search.Query;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.store.LockObtainFailedException;
 
@@ -18,11 +15,13 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.List;
 
 public class AuxiliarFunctions {
 
+    /**
+     * Deletes folder if exists.
+     * @param foldername Name of the folder.
+     */
     public static Path deleteFolder(String foldername) {
         if (new File(foldername).exists()) {
             try {
@@ -44,7 +43,7 @@ public class AuxiliarFunctions {
         } catch (IOException e){e.printStackTrace();return null;}
     }
 
-    public static void createFolder(String foldername) {
+    public static void deleteCreateFolder(String foldername) {
         deleteFolder(foldername);
         try {
             Files.createDirectory(Paths.get(foldername));
@@ -104,4 +103,11 @@ public class AuxiliarFunctions {
         return writer;
     }
 
+    public static String parse(String text) {
+        String parsedText = text.replaceAll("\\[|\\]|\\(|\\)|/|-|\\'|\\:|\\\\|\"|\\}|\\{|\\*|\\?|\\!|\\^|\\~|\\+|\\;", " ");
+        parsedText = " " + parsedText;
+        parsedText = parsedText.replaceAll(" and| or| the| at| of| a| in| OR| AND", " ");
+        parsedText = String.join(" ", parsedText.strip().split("\\s+"));
+        return parsedText;
+    }
 }

@@ -19,12 +19,13 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.commons.math3.linear.ArrayRealVector;
 
+import static es.udc.fi.irdatos.c2122.cords.AuxiliarFunctions.parse;
+
 
 /**
  * Implements reading and parsing methods for TREC-COVID Collection.
  */
 public class CollectionReader {
-    // Path global variables
     public static final Path DEFAULT_COLLECTION_PATH = Paths.get("2020-07-16");
     public static String METADATA_FILENAME = "metadata.csv";
     public static String QUERY_EMBEDDINGS_FILENAME = "query_embeddings.json";
@@ -32,39 +33,93 @@ public class CollectionReader {
     public static String TOPICS_FILENAME = "topics_set.xml";
     public static String RELEVANCE_JUDGEMENTS_FILENAME = "relevance_judgements.txt";
     public static int EMBEDDINGS_DIMENSIONALITY = 768;
+    private static int numRefAuthors = 5;
 
     // Readers
     public static final ObjectReader ARTICLE_READER = JsonMapper.builder().findAndAddModules().build().readerFor(Article.class);
     public static final ObjectReader TOPICS_READER = XmlMapper.builder().findAndAddModules().build().readerFor(Topics.class);
 
+    public static class ParsedReference {
+        private String title;
+        private String authors;
+        private int count;
+
+        public ParsedReference(String title, String authors) {
+            this.title = title;
+            this.authors = authors;
+            this.count = 1;
+        }
+
+        public void increaseCount(int by) {
+            this.count += 1;
+        }
+
+        public String title() {
+            return this.title;
+        }
+
+        public String authors() {
+            return this.authors;
+        }
+
+        public int count() {
+            return this.count;
+        }
+    }
 
     public static class ParsedArticle {
-        private String body;
-        private String authors;
+        public String body;
+        public String authors;
+        public List<ParsedReference> references;
 
-        public ParsedArticle(String body, String authors) {
+        public ParsedArticle(String body, String authors, List<ParsedReference> references) {
             this.body = body;
             this.authors = authors;
+            this.references = references;
         }
 
-        public void setBody(String newBody) {
-            this.body = newBody;
+        private void setBody(String newBody) {
+            body = newBody;
         }
-        public void setAuthors(String newAuthors) {
-            this.authors = newAuthors;
+        private void setAuthors(String newAuthors) {
+            authors = newAuthors;
         }
+        private void setReferences(List<ParsedReference> newReferences) {references = newReferences;}
+        private void addReferences(List<ParsedReference> newReferences) {references.addAll(newReferences); }
 
         public String body() {return body;}
         public String authors() {return authors;}
+        public List<ParsedReference> references() {return references;}
+        public String textReferences() {
+            StringBuilder refBuilder = new StringBuilder();
+            for (ParsedReference reference : references) {
+                refBuilder.append(reference.title() + "\t" + reference.authors() + "\t" + reference.count() + "\n");
+            }
+            return refBuilder.toString();
+        }
     }
 
+    private static String parseAuthors(List<Article.Author> authors) {
+        StringBuilder builderAuthors = new StringBuilder();
+        for (int i = 0; i < Math.min(numRefAuthors, authors.size()); i++) {
+            Article.Author author = authors.get(i);
+            if (author.last().length() == 0) {
+                continue;
+            }
+            builderAuthors.append(author.last() + " ");
+        }
+        String parsedAuthors = parse(builderAuthors.toString());
+        return parsedAuthors;
+    }
 
     /**
-     * Parses the content of the JSON files with the given structure in the class Article.java
+     * Parses the content of the JSON file: authors (last name), body, references parsed title, references parsed
+     * authors and number of citations of that reference.
      * @param articlePath Path of the JSON file.
      * @returns PorsedArticle instance.
      */
     private static final ParsedArticle parseArticleFile(Path articlePath) {
+        // read article
         Article article;
         try {
             article = ARTICLE_READER.readValue(articlePath.toFile());
@@ -73,31 +128,46 @@ public class CollectionReader {
             return null;
         }
 
+        // prepare string builders and map objects to store information of the article
         StringBuilder articleTextBuilder = new StringBuilder();
-        // add article text
-        for (Article.Content content : article.body_text()) {
-            articleTextBuilder.append(content.section());
-            articleTextBuilder.append('\n');
-            articleTextBuilder.append(content.text());
-            articleTextBuilder.append('\n');
+        Map<String, ParsedReference> parsedReferences = new HashMap<>();
+        String articleAuthors = "";
+
+
+        // add all bib entries to parsedReferences
+        for (Map.Entry<String, Article.Reference> entry : article.bib_entries().entrySet()) {
+            String parsedTitle = parse(entry.getValue().title());
+            if (parsedTitle.length() == 0) { continue; }
+            String parsedAuthors = parseAuthors(entry.getValue().authors());
+            if (parsedAuthors.length() == 0) { continue; }
+            parsedReferences.put(entry.getKey(), new ParsedReference(parsedTitle, parsedAuthors));
+        }
+        // add article text and count references to update the counts
+        for (Article.Content paragraph : article.body_text()) {
+            articleTextBuilder.append(paragraph.section() + "\n");
+            articleTextBuilder.append(paragraph.text() + "\n");
+            for (Article.Content.Cite cite : paragraph.cite_spans()) {
+                if (parsedReferences.containsKey(cite.ref_id())) {
+                    parsedReferences.get(cite.ref_id()).increaseCount(1);
+                }
+            }
         }
         String articleText = articleTextBuilder.toString();
 
-        // add article authors
-        String articleAuthors = "";
+        // add article authors (last name)
         if (!Objects.isNull(article.metadata().authors())) {
             List<Article.Author> authors = article.metadata().authors();
             StringBuilder articleAuthorsBuilder = new StringBuilder();
             for (int i=0; i < authors.size(); i++) {
-                articleAuthorsBuilder.append(authors.get(i).last());
-                articleAuthorsBuilder.append(" ; ");
+                articleAuthorsBuilder.append(authors.get(i).last() + "; ");
             }
             articleAuthors = articleAuthorsBuilder.toString();
         }
 
-        ParsedArticle parsedArticle = new ParsedArticle(articleText, articleAuthors);
+        ParsedArticle parsedArticle = new ParsedArticle(articleText, articleAuthors, parsedReferences.values().stream().toList());
         return parsedArticle;
     }
+
 
     /**
      * Using the readArticleFile method, parses a set of articles and returns their joined content.
@@ -106,11 +176,12 @@ public class CollectionReader {
      * articlesPath.
      */
     private static final ParsedArticle parseArticleFiles(List<Path> articlePaths) {
-        ParsedArticle completeArticle = new ParsedArticle("", "");
+        ParsedArticle completeArticle = new ParsedArticle("", "", new ArrayList<>());
         for (Path articlePath : articlePaths) {
             ParsedArticle parsedArticle = parseArticleFile(articlePath);
             completeArticle.setBody(completeArticle.body() + "\n" + parsedArticle.body());
             completeArticle.setAuthors(completeArticle.authors() + "\n" + parsedArticle.authors());
+            completeArticle.addReferences(completeArticle.references());
         }
         return completeArticle;
     }
@@ -134,29 +205,6 @@ public class CollectionReader {
             return null;
         }
         return parsedArticle;
-    }
-
-    /**
-     * From a Metadata instance, reads the PMC and PDF files and reads the PMC JSON file (if it exists) or the first
-     * PDF file. If non of them exist, return null.
-     * @param rowMetadata Metadata object.
-     */
-    public static final Article readArticle(Metadata rowMetadata) {
-        Article article;
-        try {
-            if (rowMetadata.pmcFile().length() != 0) {
-                article = ARTICLE_READER.readValue(DEFAULT_COLLECTION_PATH.resolve(rowMetadata.pmcFile()).toFile());
-            } else if (rowMetadata.pdfFiles().size() != 0) {
-                article = ARTICLE_READER.readValue(DEFAULT_COLLECTION_PATH.resolve(rowMetadata.pdfFiles().get(0)).toFile());
-            } else {
-                return null;
-            }
-        } catch (IOException e) {
-            System.out.println("IOException while reading JSON file " +  rowMetadata.pmcFile());
-            e.printStackTrace();
-            return null;
-        }
-        return article;
     }
 
 

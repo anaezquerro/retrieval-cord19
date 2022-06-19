@@ -41,9 +41,9 @@ public class QueryEvaluation {
         // Loop for each document returned by the query
         for (int i = 0; i < Math.min(predictedRelevant.size(), k); i++) {
 
-            String docID = predictedRelevant.get(i).cordID();
+            String cordID = predictedRelevant.get(i).cordID();
 
-            if (realRelevant.contains(docID)) {
+            if (realRelevant.contains(cordID)) {
                 TPseen = TPseen + 1;          // add +1 to the TP seen
                 APk = APk + (TPseen / (i+1));     // add TPseen/i to the APk summary
             }
@@ -114,12 +114,12 @@ public class QueryEvaluation {
 
             // add each document
             for (int i=0; i < cut; i++) {
-                String docID = topDocuments.get(i).cordID();
+                String cordID = topDocuments.get(i).cordID();
                 String rank = Integer.toString(i);
                 String score = Double.toString(topDocuments.get(i).score());
 
                 try {
-                    writer.write(String.join(" ", Integer.toString(topic), "Q0", docID, rank, score, runtag, "\n"));
+                    writer.write(String.join(" ", Integer.toString(topic), "Q0", cordID, rank, score, runtag, "\n"));
                 } catch (IOException e) {
                     System.out.println("IOException while saving the results of the document " + i + " of the topic " + topic);
                     e.printStackTrace();

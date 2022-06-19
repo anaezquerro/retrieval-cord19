@@ -49,7 +49,7 @@
 
 {
 \setbeamerfont{frametitle}{size=\normalsize}
-\begin{frame}{Query 1. LM with Jelinek Mercer smoothing and query expansion based on probability theory and pseudo-relevance feedback}
+\begin{frame}{Approach 1. LM with Jelinek Mercer smoothing and query expansion based on probability theory and pseudo-relevance feedback}
     \begin{itemize}
         \item Initial results were computed with a boosted \href{https://lucene.apache.org/core/8_9_0/core/org/apache/lucene/search/BooleanQuery.html}{BooleanQuery} in \textit{title}, \textit{abstract} and \textit{body} fields.
         \item Once the $n$ documents are returned (our initial results), the re-ranking method is computed by considering that top $n$ documents conform the true relevant document set (pseudo-relevance feedback). Thus, from the Binary Independence Model (BIM) assumptions, we can compute the log-odd ratios of each term $t$:
@@ -62,7 +62,7 @@
     \end{itemize}
 \end{frame}
 
-\begin{frame}{Query 2. Vector Space Model using TREC-COVID embeddings and computing KNN corrected with Rocchio \cite{salton1990improving}}
+\begin{frame}{Approach 2. Vector Space Model using TREC-COVID embeddings and computing KNN corrected with Rocchio \cite{salton1990improving}}
     \begin{itemize}
         \item The TREC-COVID Dataset provides a collection of document embeddings computed by \href{https://arxiv.org/abs/2004.07180}{SPECTER transformer}. Query embeddings were provided with the assignment. 
         \item Initial results were computed with a \href{https://lucene.apache.org/core/8_9_0/core/org/apache/lucene/search/BooleanQuery.html}{BooleanQuery} in aforementioned fields with a \href{https://lucene.apache.org/core/9_0_0/core/org/apache/lucene/search/KnnVectorQuery.html}{KnnVectorQuery} using query embeddings.
@@ -74,7 +74,7 @@
     \end{itemize}
 \end{frame}
 
-\begin{frame}{Query 3. LM with Jelinek Mercer smoothing and re-ranking documents using PageRank score}
+\begin{frame}{Approach 3. LM with Jelinek Mercer smoothing and re-ranking documents using PageRank score}
     \begin{itemize}
         \item \textbf{Hypothesis}: Some articles might reference to other articles that are in the collection, which means that there is a high probability that both have information about the same (or at least similar) topic. 
         \item \textbf{Problem}: We don't know the real relations between articles since in each reference only has a \textit{title} and \textit{authors} field.

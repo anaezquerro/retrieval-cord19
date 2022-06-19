@@ -37,3 +37,6 @@ references/
 *.pdf
 *.synctex.gz
 *.toc
+*.nav
+
+*.txt
