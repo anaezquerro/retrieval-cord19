@@ -70,12 +70,12 @@ public class ObtainTransitionMatrix {
                 System.out.println("Worker " + workerID + " computing page rank for topic " + topicID);
 
                 for (TopDocument topDocument : initialResultsTopic) {
-                    if (!(new File(PageRank.storingFolder + "/" + topDocument.cordID())).exists()) {
+                    if (!(new File(PageRank.referencesFolder + "/" + topDocument.cordID())).exists()) {
                         continue;
                     }
                     String[] references;
                     try {
-                        references = new String(Files.readAllBytes(Paths.get(PageRank.storingFolder, topDocument.cordID()))).split("\n");
+                        references = new String(Files.readAllBytes(Paths.get(PageRank.referencesFolder, topDocument.cordID()))).split("\n");
                     } catch (IOException e) { e.printStackTrace(); return;}
 
                     for (String reference : references) {

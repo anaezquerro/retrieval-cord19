@@ -43,11 +43,30 @@ public class AuxiliarFunctions {
         } catch (IOException e){e.printStackTrace();return null;}
     }
 
+
+    /**
+     * Deletes all files in a folder.
+     * @param foldername Name of the folder.
+     */
+    public static void deleteFiles(String foldername) {
+        String[] files = new File(foldername).list();
+        for (String file : files) {
+            new File(file).delete();
+        }
+    }
+
+    public static boolean exists(String path) {
+        return (new File(path).exists());
+    }
+
     public static void deleteCreateFolder(String foldername) {
-        deleteFolder(foldername);
-        try {
-            Files.createDirectory(Paths.get(foldername));
-        } catch (IOException e) {e.printStackTrace();return;}
+        if (exists(foldername)) {
+            deleteFiles(foldername);
+        } else {
+            try {
+                Files.createDirectory(Paths.get(foldername));
+            } catch (IOException e) {e.printStackTrace();return;}
+        }
     }
 
     public static Integer[] coalesce(int numWorkers, int N) {

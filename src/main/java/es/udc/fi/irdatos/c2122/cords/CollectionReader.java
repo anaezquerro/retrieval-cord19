@@ -39,6 +39,11 @@ public class CollectionReader {
     public static final ObjectReader ARTICLE_READER = JsonMapper.builder().findAndAddModules().build().readerFor(Article.class);
     public static final ObjectReader TOPICS_READER = XmlMapper.builder().findAndAddModules().build().readerFor(Topics.class);
 
+    /**
+     * Parsed reference object to store parsed title, authors and count of the citations.
+     * Note: In this context, "parsed" means that title and authors string expression has been modified in order to not
+     * raising the ParseException in the QueryParser.parse() method.
+     */
     public static class ParsedReference {
         private String title;
         private String authors;
@@ -67,6 +72,9 @@ public class CollectionReader {
         }
     }
 
+    /**
+     * Parsed article object to store body (as string), authors (as string) and list of parsed references.
+     */
     public static class ParsedArticle {
         public String body;
         public String authors;
@@ -99,6 +107,11 @@ public class CollectionReader {
         }
     }
 
+    /**
+     * With a given list of authors read from the JSON file, concatenates their surnames in a unique string.
+     * @param authors List of authors directly read from the JSON file with the JSON parser.
+     * @returns String of authors surnames separated with a space.
+     */
     private static String parseAuthors(List<Article.Author> authors) {
         StringBuilder builderAuthors = new StringBuilder();
         for (int i = 0; i < Math.min(numRefAuthors, authors.size()); i++) {
