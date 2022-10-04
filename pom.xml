@@ -5,10 +5,10 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>es.udc.fi.irdatos.2122</groupId>
-  <artifactId>ir-assignment</artifactId>
+  <artifactId>retrieval-cord19</artifactId>
   <version>1.0-SNAPSHOT</version>
 
-  <name>ir-assignment</name>
+  <name>retrieval-cord19</name>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
