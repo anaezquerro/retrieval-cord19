@@ -19,7 +19,7 @@ public class IdxWriter {
     private String foldername;
 
     public IdxWriter(String foldername) {
-        deleteFolder(foldername, true);
+        deleteFolder(foldername);
         IndexWriterConfig config = new IndexWriterConfig(new StandardAnalyzer());
         config.setSimilarity(PoolIndexing.similarity);
 
