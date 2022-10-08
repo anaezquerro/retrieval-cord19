@@ -88,8 +88,9 @@ public class PoolIndexing {
 
                 // document embedding
                 if (docEmbeddings.keySet().contains(rowMetadata.cordUid())) {
-                    float[] docEmbedding = docEmbeddings.get(rowMetadata.cordUid()).getFloat();
-                    doc.add(new KnnVectorField("embedding", docEmbedding));
+                    Embedding docEmbedding = docEmbeddings.get(rowMetadata.cordUid());
+                    doc.add(new KnnVectorField("knn-embedding", docEmbedding.getFloat()));
+                    doc.add(new StoredField("embedding", docEmbedding.toString()));
                 }
 
                 // body: tokenized, term-vectorized, not stored

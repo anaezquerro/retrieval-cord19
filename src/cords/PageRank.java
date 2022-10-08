@@ -59,28 +59,35 @@ public class PageRank {
     VECTOR_ITEM_SEP   [String]              : String separator used to convert a vector to a string sequence.
     countPageRank     [ArrayRealVector]     : PageRank vector considering the references count.
     binaryPageRank    [ArrayRealVector]     : PageRank vector considering only binary references.
-
      */
     public static String VECTOR_ITEM_SEP = " ";
     private ArrayRealVector countPageRank;
     private ArrayRealVector binaryPageRank;
 
-
-
     /*
-    Some notation:
+    Vectors notation to store them as String.
     trefCNVec           : Count (C) normalized (N) references vector (t).
     trefBNVec           : Binary (B) normalized (B) references vector (t).
     orefCNVec           : Count (C) normalized (N) inverse references vector (o).
     orefBNvec           : Binary (B) normalized (N) inverse references vector (o).
      */
 
-    // page rank parameters
+    /*
+    PageRank computing parameters:
+    m          [int]   : Number of topDocs obtained in references searching that are used to create a match between a bib entry and a doc.
+    iterations [int]   : Number of iterations of PageRank.
+    alpha      [float] : PageRank parameter that defines the random probability.
+     */
     int m = 2;
     private int iterations = 100;
     public static float alpha = 0.1F;
 
 
+    /**
+     * Implements the process of searching a bibliography entry in the index to create a match between a bib entry and
+     * a document of the index. This match results in a reference between the original doc that contains such entry and
+     * the doc obtained from the retrieval ranking.
+     */
     private class WorkerSearch implements Runnable {
         private int start;
         private int end;
@@ -97,8 +104,8 @@ public class PageRank {
             long tstart = System.currentTimeMillis();
 
             for (int docID = start; docID < end; docID++) {
-                if (Math.floorMod(docID, 500) == 0) {
-                    System.out.println(workerID + ": is in docID=" + docID);
+                if (Math.floorMod(docID, 1000) == 0) {
+                    System.out.println(workerID + ": is searching for matches in docID=" + docID);
                 }
 
                 CompressedRefsVector trefVec = new CompressedRefsVector(ireader.numDocs());
@@ -176,14 +183,17 @@ public class PageRank {
                 iwriter.addDocument(doc);
             }
             long tend = System.currentTimeMillis();
-            System.out.println("worker" + workerID + " run time (in seconds): " + (tend - tstart) * 0.001);
+            System.out.println("WorkerSearch " + workerID + ": " + (tend-tstart));
         }
+
     }
 
+
     private class WorkerInverse implements Runnable {
-        int workerID;
-        int start;
-        int end;
+        private int workerID;
+        private int start;
+        private int end;
+
 
         private WorkerInverse(int start, int end, int workerID) {
             this.workerID = workerID;
@@ -193,6 +203,7 @@ public class PageRank {
 
         @Override
         public void run() {
+            long tstart = System.currentTimeMillis();
 
             Map<Integer, ReferencesVector> orefVecs = new HashMap<>();
             IntStream.range(start, end).forEach(i -> {
@@ -213,14 +224,16 @@ public class PageRank {
                         }
                 );
             }
-
             orefVecs.entrySet().stream().forEach(
                     entry -> {
                         Document doc = ireader.document(cord2doc.get(entry.getKey()));
                         doc.add(new StoredField("orefNCVec", orefVecs.get(entry.getKey()).count2string()));
                         doc.add(new StoredField("orefNBVec", orefVecs.get(entry.getKey()).binary2string()));
+                        iwriter.addDocument(doc);
                     }
             );
+            long tend = System.currentTimeMillis();
+            System.out.println("WorkerInverse " + workerID + ": " + (tend-tstart));
         }
     }
 
@@ -262,6 +275,7 @@ public class PageRank {
             int cordID = Integer.parseInt(doc.get("cordID"));
             doc.add(new StoredField("binaryPageRank", binaryPageRank.getEntry(cordID)));
             doc.add(new StoredField("countPageRank", countPageRank.getEntry(cordID)));
+            iwriter.addDocument(doc);
         }
     }
 
@@ -273,7 +287,6 @@ public class PageRank {
             renameFolder(SAVE_INDEX_FOLDERNAME, INDEX_FOLDERNAME);
         }
 
-        long tstart = System.currentTimeMillis();
         int numCores = Runtime.getRuntime().availableProcessors();
         ExecutorService executor = Executors.newFixedThreadPool(numCores);
 
@@ -306,8 +319,6 @@ public class PageRank {
             e.printStackTrace();
             System.exit(-2);
         }
-        long tend = System.currentTimeMillis();
-        System.out.println("Total time for references indexing/storing: " + (tend - tstart) * 0.001);
 
         iwriter.commit();
         iwriter.close();
@@ -324,7 +335,7 @@ public class PageRank {
         iwriter = new IdxWriter(INDEX_FOLDERNAME);
         ireader = new IdxReader(TEMP_INDEX_FOLDERNAME);
         isearcher = new IdxSearcher(ireader);
-        numCores = 4;
+        numCores = 12;
         int nbatches = 16;
         Integer[] batchesDivision = coalesce(nbatches, ireader.numDocs());
         System.out.println("Inverting " + ireader.numDocs() + " vectors with " + numCores + " cores in " + nbatches + " batches");
@@ -370,13 +381,15 @@ public class PageRank {
         binaryPageRank = new ArrayRealVector(ireader.numDocs(), (double) 1 / ireader.numDocs());
         countPageRank = new ArrayRealVector(ireader.numDocs(), (double) 1 / ireader.numDocs());
 
+        long tstart = System.currentTimeMillis();
         computePageRank();
+        long tend = System.currentTimeMillis();
+        System.out.println("PageRank computing time: " + (tend-tstart));
 
         iwriter.commit();
         iwriter.close();
         ireader.close();
         deleteFolder(TEMP_INDEX_FOLDERNAME);
-        deleteFolder(SAVE_INDEX_FOLDERNAME);
     }
 
 

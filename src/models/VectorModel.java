@@ -43,7 +43,7 @@ public class VectorModel extends RetrievalModel {
     }
 
     private List<TopDocument> vectorQuery(Embedding embedding, int topN) {
-        Query knnQuery = new KnnVectorQuery("embedding", embedding.getFloat(), topN);
+        Query knnQuery = new KnnVectorQuery("knn-embedding", embedding.getFloat(), topN);
         TopDocs topDocs = searcher.search(knnQuery, topN);
         return super.coerce(topDocs, topN);
     }

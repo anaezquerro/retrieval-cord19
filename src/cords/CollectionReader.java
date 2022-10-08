@@ -11,6 +11,9 @@ import formats.Article;
 import formats.Metadata;
 import formats.RelevanceJudgements;
 import formats.Topics;
+import lucene.IdxReader;
+import org.apache.lucene.index.IndexableField;
+import org.apache.lucene.util.BytesRef;
 import schemas.*;
 import util.ObjectReaderUtils;
 
@@ -22,6 +25,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static cords.PoolIndexing.INDEX_FOLDERNAME;
 import static schemas.ParsedArticle.AUTHORS_SEPARATOR;
 
 /**
@@ -343,8 +347,12 @@ public class CollectionReader {
     }
 
     public static void main(String[] args) {
-        Map<Integer, Embedding> topicEmbeddings = parseTopicEmbeddings();
-        System.out.println(topicEmbeddings.get(0).toString());
+//        Map<Integer, Embedding> topicEmbeddings = parseTopicEmbeddings();
+//        System.out.println(topicEmbeddings.get(0).toString());
+        IdxReader reader = new IdxReader(INDEX_FOLDERNAME);
+        String v = reader.document(0).get("embedding");
+
+        System.out.println(v);
     }
 
 }

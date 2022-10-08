@@ -57,9 +57,10 @@ To execute this code (Java and Python files), the following prerequisites are ne
 - [Java 17](https://www.oracle.com/java/technologies/downloads/#java17).
 - [Python 3.10](https://www.python.org/downloads/release/python-3100/) and [pip](https://pip.pypa.io/en/stable/installation/). 
 Once both have been installed, install [wget](https://pypi.org/project/wget/), [tarfile](https://docs.python.org/3/library/tarfile.html), 
-[bs4](https://pypi.org/project/bs4/) and [transformers](https://huggingface.co/transformers) libraries by running in terminal:
+[bs4](https://pypi.org/project/bs4/), [lxml](https://lxml.de/installation.html) 
+and [transformers](https://huggingface.co/transformers) libraries by running in terminal:
 ```shell
-pip install wget tarfile bs4 transformers
+pip install wget tarfile bs4 lxml transformers
 ```
 - To download the CORD19 dataset and TREC-COVID Collection files, run `download-data.py` file in `retrieval-cord19/`  via:
 ```shell
