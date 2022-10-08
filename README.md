@@ -170,7 +170,7 @@ Thus, once the PageRank process has finished, in the index we have the following
 - A vector $\vec{t}^{(i,nc)}$ that is obtained via normalizing $\vec{t}^{(i, c)}$ following Page Rank algorithm:
 
 $$ \text{norm}({\vec{t}_c}) = \begin{cases}
-  (1/n | j=1,...,n) & \text{if }t_j=0, \ \forall j \in [1,n] \\[1em]
+  (1/n | j=1,...,n) & \text{if }t_j=0, \ \forall j \in [1,n] \\\\
   \vec{t}_c\cdot\frac{1-\alpha}{\text{sum}(\vec{t}_c)} + \frac{\alpha}{n} & \text{otherwise}
 \end{cases}
 $$
@@ -178,7 +178,7 @@ $$
 - Invert vectors: 
 
 $$ \begin{cases}
-  \vec{o}^{(i,nb)} = (o^{(i,nb)}_1,...,o^{(i,nb)}_n), \quad \text{where } o_j^{(i,nb)} = t^{(j, nb)}_i \\[1em]
+  \vec{o}^{(i,nb)} = (o^{(i,nb)}_1,...,o^{(i,nb)}_n), \quad \text{where } o_j^{(i,nb)} = t^{(j, nb)}_i \\\\
   \vec{o}^{(i,nc)} = (o^{(i,nc)}_1,...,o^{(i,nc)}_n), \quad \text{where } o_j^{(i,nc)} = t^{(j, nc)}_i
   \end{cases}
   $$
