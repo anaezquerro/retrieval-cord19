@@ -1,11 +1,9 @@
-package es.udc.fi.irdatos.c2122.schemas;
+package formats;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlElementWrapper;
 import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlProperty;
 import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlRootElement;
-
-import java.util.List;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JacksonXmlRootElement(localName="topics")
@@ -18,7 +16,7 @@ public record Topics(
             @JacksonXmlProperty(localName="number", isAttribute = true)
             int number,
 
-            @JacksonXmlProperty(localName = "query")
+            @JacksonXmlProperty(localName = "models")
             String query,
 
             @JacksonXmlProperty(localName = "question")

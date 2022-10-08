@@ -1,15 +1,19 @@
 package cords;
 
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.dataformat.csv.CsvMapper;
 import com.fasterxml.jackson.dataformat.csv.CsvSchema;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
-import es.udc.fi.irdatos.c2122.schemas.*;
-import es.udc.fi.irdatos.c2122.util.ObjectReaderUtils;
+import formats.Article;
+import formats.Metadata;
+import formats.RelevanceJudgements;
+import formats.Topics;
+import schemas.*;
+import util.ObjectReaderUtils;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,232 +21,194 @@ import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.apache.commons.math3.linear.ArrayRealVector;
 
-import static es.udc.fi.irdatos.c2122.cords.AuxiliarFunctions.parse;
-
+import static schemas.ParsedArticle.AUTHORS_SEPARATOR;
 
 /**
- * Implements reading and parsing of the TREC-COVID Collection.
+ * Implements parsing of the TREC-COVID Collection files adapting their content to the desired structure.
  */
 public class CollectionReader {
-    /* Global variables:
-    COLLECTION_PATH [Path]          : Relative path to the TREC-COVID Collection.
-    METADATA_FILENAME [String]      : Relative path from COLLECTION_PATH to the metadata.csv file.
-    QEMBEDDINGS_FILENAME [String]   : Relative path from COLLECTION_PATH to the query embeddings.json file.
-    DOCEMBEDDINGS_FILENAME [String] : Relative path from COLLECTION_PATH to the document embeddings CSV file.
-    TOPICS_FILENAME [String]        : Relative path from COLLECTION_PATH to the topics set XML file.
-    RELJUDGS_FILENAME [String]      : Relative path form COLLECTION_PATH to the relevance judgements TXT file.
-
+    /* Global variables (paths):
+    COLLECTION_PATH         [Path]    : Relative path to the TREC-COVID Collection.
+    METADATA_FILENAME       [String]  : Relative path from COLLECTION_PATH to the metadata.csv file.
+    QEMBEDDINGS_FILENAME    [String]  : Relative path from COLLECTION_PATH to the query embeddings.json file.
+    DOCEMBEDDINGS_FILENAME  [String]  : Relative path from COLLECTION_PATH to the document embeddings CSV file.
+    TOPICS_FILENAME         [String]  : Relative path from COLLECTION_PATH to the topics set XML file.
+    RELJUDGS_FILENAME       [String]  : Relative path form COLLECTION_PATH to the relevance judgements TXT file.
      */
 
-    public static final Path DEFAULT_COLLECTION_PATH = Paths.get("2020-07-16");
+    public static final Path COLLECTION_PATH = Paths.get("2020-07-16");
+    public static final String METADATA_FILENAME = "metadata.csv";
+    public static final String QUERY_EMBEDDINGS_FILENAME = "topics-embeddings.json";
+    public static final String DOC_EMBEDDINGS_FILENAME = "embeddings.csv";
+    public static final String TOPICS_FILENAME = "topics-set.xml";
+    public static final String RELEVANCE_JUDGEMENTS_FILENAME = "relevance-judgements.txt";
 
-    public static String METADATA_FILENAME = "metadata.csv";
-    public static String QUERY_EMBEDDINGS_FILENAME = "query_embeddings.json";
-    public static String DOC_EMBEDDINGS_FILENAME = "cord_19_embeddings_2020-07-16.csv";
-    public static String TOPICS_FILENAME = "topics_set.xml";
-    public static String RELEVANCE_JUDGEMENTS_FILENAME = "relevance_judgements.txt";
-    private static int numRefAuthors = 5;
-
-    // Readers
+    /* Global variables (readers):
+    ARTICLE_READER     [ObjectReader]  : JSON reader for the files in `2020-07-16/document_parses/`
+    TOPICS_READER      [ObjectReader]  : XML reader for `2020-07-16/topics-set.xml`
+    METADATA_SCHEMA    [CsvSchema]     : CSV schema for 2020-07-16/metadata.csv.
+    METADATA_READER    [ObjectReader]  : Relative path from COLLECTION_PATH to the document embeddings CSV file.
+     */
     public static final ObjectReader ARTICLE_READER = JsonMapper.builder().findAndAddModules().build().readerFor(Article.class);
     public static final ObjectReader TOPICS_READER = XmlMapper.builder().findAndAddModules().build().readerFor(Topics.class);
+    public static final CsvSchema METADATA_SCHEMA = CsvSchema.emptySchema().withHeader().withArrayElementSeparator("; ");
+    public static final ObjectReader METADATA_READER = new CsvMapper().readerFor(Metadata.class).with(METADATA_SCHEMA);
+
+    // ------------------------------------------------ document_parses ------------------------------------------------
 
     /**
-     * Parsed reference object to store parsed title, authors and count of the citations.
-     * Note: In this context, "parsed" means that title and authors string expression has been modified in order to not
-     * raising the ParseException in the QueryParser.parse() method.
+     * Deletes invalid string sequences in order to allow the function parseQuery() to parse it.
+     *
+     * @param text Text to validate.
+     * @return Parsed text.
      */
-    public static class ParsedReference {
-        private String title;
-        private String authors;
-        private int count;
-
-        public ParsedReference(String title, String authors) {
-            this.title = title;
-            this.authors = authors;
-            this.count = 1;
-        }
-
-        public void increaseCount(int by) {
-            this.count += 1;
-        }
-
-        public String title() {
-            return this.title;
-        }
-
-        public String authors() {
-            return this.authors;
-        }
-
-        public int count() {
-            return this.count;
-        }
+    public static String parse(String text) {
+        String parsedText = text.replaceAll("\\[|\\]|\\(|\\)|/|-|\\'|\\:|\\\\|\"|\\}|\\{|\\*|\\?|\\!|\\^|\\~|\\+|\\;", " ");
+        parsedText = " " + parsedText;
+        parsedText = parsedText.replaceAll(" and| or| the| at| of| a| in| OR| AND", " ");
+        parsedText = String.join(" ", parsedText.strip().split("\\s+"));
+        return parsedText;
     }
 
     /**
-     * Parsed article object to store body (as string), authors (as string) and list of parsed references.
+     * Given a list of [Author] authors (obtained from reading a JSON file with Article schema), concatenates last names
+     * of the first n authors of the list.
+     *
+     * @param authors    List of Author.
+     * @param numAuthors Number of authors that must be saved in a single string.
+     * @returns String of the first `numAuthors` last names.
      */
-    public static class ParsedArticle {
-        public String body;
-        public String authors;
-        public List<ParsedReference> references;
-
-        public ParsedArticle(String body, String authors, List<ParsedReference> references) {
-            this.body = body;
-            this.authors = authors;
-            this.references = references;
-        }
-
-        private void setBody(String newBody) {
-            body = newBody;
-        }
-        private void setAuthors(String newAuthors) {
-            authors = newAuthors;
-        }
-        private void setReferences(List<ParsedReference> newReferences) {references = newReferences;}
-        private void addReferences(List<ParsedReference> newReferences) {references.addAll(newReferences); }
-
-        public String body() {return body;}
-        public String authors() {return authors;}
-        public List<ParsedReference> references() {return references;}
-        public String textReferences() {
-            StringBuilder refBuilder = new StringBuilder();
-            for (ParsedReference reference : references) {
-                refBuilder.append(reference.title() + "\t" + reference.authors() + "\t" + reference.count() + "\n");
-            }
-            return refBuilder.toString();
-        }
-    }
-
-    /**
-     * With a given list of authors read from the JSON file, concatenates their surnames in a unique string.
-     * @param authors List of authors directly read from the JSON file with the JSON parser.
-     * @returns String of authors surnames separated with a space.
-     */
-    private static String parseAuthors(List<Article.Author> authors) {
+    private static String parseAuthors(List<Article.Author> authors, int numAuthors) {
         StringBuilder builderAuthors = new StringBuilder();
-        for (int i = 0; i < Math.min(numRefAuthors, authors.size()); i++) {
+        for (int i = 0; i < Math.min(numAuthors, authors.size()); i++) {
             Article.Author author = authors.get(i);
             if (author.last().length() == 0) {
                 continue;
             }
-            builderAuthors.append(author.last() + " ");
+            builderAuthors.append(author.last() + AUTHORS_SEPARATOR);
         }
         String parsedAuthors = parse(builderAuthors.toString());
         return parsedAuthors;
     }
 
+
     /**
-     * Parses the content of the JSON file: authors (last name), body, references parsed title, references parsed
-     * authors and number of citations of that reference.
-     * @param articlePath Path of the JSON file.
-     * @returns PorsedArticle instance.
+     * Given an Article scheme, parses its content to obtain the body, authors and parsed references.
+     *
+     * @param articlePath : Path to the JSON file.
+     * @return ParsedArticle.
      */
-    private static final ParsedArticle parseArticleFile(Path articlePath) {
-        // read article
+    public static ParsedArticle parseArticle(Path articlePath) {
+        // -------------------------- READING --------------------------
         Article article;
         try {
             article = ARTICLE_READER.readValue(articlePath.toFile());
         } catch (IOException e) {
-            System.out.println("While reading a JSON file an error has occurred: " + articlePath);
+            System.out.println("IOException while reading JSON file " + articlePath.toString());
+            e.printStackTrace();
             return null;
         }
 
-        // prepare string builders and map objects to store information of the article
-        StringBuilder articleTextBuilder = new StringBuilder();
-        Map<String, ParsedReference> parsedReferences = new HashMap<>();
-        String articleAuthors = "";
+        // -------------------------- PARSING --------------------------
+        StringBuilder bodyBuilder = new StringBuilder();
+        Map<String, ParsedArticle.ParsedReference> parsedReferences = new HashMap<>();
 
-
-        // add all bib entries to parsedReferences
-        for (Map.Entry<String, Article.Reference> entry : article.bib_entries().entrySet()) {
-            String parsedTitle = parse(entry.getValue().title());
-            if (parsedTitle.length() == 0) { continue; }
-            String parsedAuthors = parseAuthors(entry.getValue().authors());
-            if (parsedAuthors.length() == 0) { continue; }
-            parsedReferences.put(entry.getKey(), new ParsedReference(parsedTitle, parsedAuthors));
+        // add bibliography entries to parsedReferences
+        for (Map.Entry<String, Article.Reference> bibEntry : article.bib_entries().entrySet()) {
+            String refTitle = parse(bibEntry.getValue().title());
+            if (refTitle.length() == 0) {
+                continue;
+            }
+            String refAuthors = parseAuthors(bibEntry.getValue().authors(), ParsedArticle.NUM_AUTHORS_PARSED);
+            if (refAuthors.length() == 0) {
+                continue;
+            }
+            parsedReferences.put(bibEntry.getKey(), new ParsedArticle.ParsedReference(refTitle, refAuthors));
         }
+
         // add article text and count references to update the counts
         for (Article.Content paragraph : article.body_text()) {
-            articleTextBuilder.append(paragraph.section() + "\n");
-            articleTextBuilder.append(paragraph.text() + "\n");
+            bodyBuilder.append(paragraph.section() + "\n" + paragraph.text() + "\n");
             for (Article.Content.Cite cite : paragraph.cite_spans()) {
                 if (parsedReferences.containsKey(cite.ref_id())) {
-                    parsedReferences.get(cite.ref_id()).increaseCount(1);
+                    parsedReferences.get(cite.ref_id()).increaseCount();
                 }
             }
         }
-        String articleText = articleTextBuilder.toString();
+        List<ParsedArticle.ParsedReference> references = parsedReferences.values().stream().toList();
+        String body = bodyBuilder.toString();
 
-        // add article authors (last name)
+        // add authors last name
+        String authors;
         if (!Objects.isNull(article.metadata().authors())) {
-            List<Article.Author> authors = article.metadata().authors();
-            StringBuilder articleAuthorsBuilder = new StringBuilder();
-            for (int i=0; i < authors.size(); i++) {
-                articleAuthorsBuilder.append(authors.get(i).last() + "; ");
-            }
-            articleAuthors = articleAuthorsBuilder.toString();
+            authors = parseAuthors(article.metadata().authors(), article.metadata().authors().size());
+        } else {
+            authors = "";
         }
 
-        ParsedArticle parsedArticle = new ParsedArticle(articleText, articleAuthors, parsedReferences.values().stream().toList());
-        return parsedArticle;
+        return new ParsedArticle(null, null, body, authors, references);
     }
 
-
     /**
-     * Using the readArticleFile method, parses a set of articles and returns their joined content.
-     * @param articlePaths Array of paths to the set of articles which need to be parsed.
-     * @returns String array where each element is the concatenation of one specific field of all articles specified in
-     * articlesPath.
+     * Given multiple Article instances, parses and merges their contents to obtain an unique body,
+     * set of authors and set of references.
+     *
+     * @param articlePaths List of paths to JSON files.
+     * @return ParsedArticle.
      */
-    private static final ParsedArticle parseArticleFiles(List<Path> articlePaths) {
-        ParsedArticle completeArticle = new ParsedArticle("", "", new ArrayList<>());
-        for (Path articlePath : articlePaths) {
-            ParsedArticle parsedArticle = parseArticleFile(articlePath);
-            completeArticle.setBody(completeArticle.body() + "\n" + parsedArticle.body());
-            completeArticle.setAuthors(completeArticle.authors() + "\n" + parsedArticle.authors());
-            completeArticle.addReferences(completeArticle.references());
+    public static ParsedArticle parseArticles(List<Path> articlePaths) {
+        ParsedArticle completeArticle = new ParsedArticle(null, null, "", "", new ArrayList<>());
+        ParsedArticle partialArticle;
+        for (Path article : articlePaths) {
+            partialArticle = parseArticle(article);
+            completeArticle.addBody("\n" + partialArticle.body());
+            String partialAuthors = String.join(AUTHORS_SEPARATOR,
+                    Arrays.stream(partialArticle.authors().split(AUTHORS_SEPARATOR))
+                            .filter(x -> !completeArticle.authors().contains(x))
+                            .toList());
+            completeArticle.addAuthors(AUTHORS_SEPARATOR + partialAuthors);
+            completeArticle.addReferences(partialArticle.references());
         }
         return completeArticle;
     }
 
+    // ------------------------------------------------- metadata.csv --------------------------------------------------
+
     /**
      * From a Metadata instance (row information in metadata.csv), reads the corresponding JSON file or files to return
      * its content.
+     *
      * @param rowMetadata Metadata object.
      * @returns Parsed article with all the content.
      */
-    public static final ParsedArticle parseArticle(Metadata rowMetadata) {
+    public static final ParsedArticle parseRowMetadata(Metadata rowMetadata) {
         ParsedArticle parsedArticle;
         if (rowMetadata.pmcFile().length() != 0) {
-            parsedArticle = parseArticleFile(DEFAULT_COLLECTION_PATH.resolve(rowMetadata.pmcFile()));
+            parsedArticle = parseArticle(COLLECTION_PATH.resolve(rowMetadata.pmcFile()));
         } else if (rowMetadata.pdfFiles().size() >= 1) {
-            List<Path> pdfPaths = rowMetadata.pdfFiles().stream().map(
-                    pdfPath -> DEFAULT_COLLECTION_PATH.resolve(pdfPath)
-            ).collect(Collectors.toList());
-            parsedArticle = parseArticleFiles(pdfPaths);
+            parsedArticle = parseArticles(
+                    rowMetadata.pdfFiles().stream().map(pdfPath -> COLLECTION_PATH.resolve(pdfPath)).toList()
+            );
         } else {
             return null;
         }
+        parsedArticle.setTitle(rowMetadata.title());
+        parsedArticle.setAbstract(rowMetadata.abstrac());
         return parsedArticle;
     }
 
 
     /**
      * Parses the metadata.csv file with the given structure in Metadata.java
-     * @returns List of Metadata objects representing each row of the CSV.
+     *
+     * @returns List of ParsedArticle objects representing each article specified in the collection.
      */
     public static final List<Metadata> readMetadata() {
-        Path metadataPath = DEFAULT_COLLECTION_PATH.resolve(METADATA_FILENAME);
-        CsvSchema schema = CsvSchema.emptySchema().withHeader().withArrayElementSeparator("; ");
-        ObjectReader reader = new CsvMapper().readerFor(Metadata.class).with(schema);
-
+        Path metadataPath = COLLECTION_PATH.resolve(METADATA_FILENAME);
         List<Metadata> metadata;
         try {
-            metadata = ObjectReaderUtils.readAllValues(metadataPath, reader);
+            metadata = ObjectReaderUtils.readAllValues(metadataPath, METADATA_READER);
         } catch (IOException e) {
             System.out.println("IOException while reading metadata in " + metadataPath.toString());
             e.printStackTrace();
@@ -252,68 +218,18 @@ public class CollectionReader {
     }
 
 
-    /**
-     * Parses query embeddings file and returns for each topic query identifier the embedding vector.
-     * @returns Map object formed by (topicID, queryEmbedding) pairs.
-     */
-    public static final Map<Integer, ArrayRealVector> readQueryEmbeddings() {
-        Map<String, List<Double>> queryEmbeddingsString = null;
-        try {
-            queryEmbeddingsString = new ObjectMapper().readValue(
-                    DEFAULT_COLLECTION_PATH.resolve(QUERY_EMBEDDINGS_FILENAME).toFile(), Map.class);
-        } catch (IOException e) {
-            e.printStackTrace();
-            System.out.println("IOException while reading query embeddings JSON file");
-        }
-        Map<Integer, ArrayRealVector> queryEmbeddings = new HashMap<>();
-        for (Map.Entry<String, List<Double>> query : queryEmbeddingsString.entrySet()) {
-            Integer topicID = Integer.parseInt(query.getKey());
-            Double[] embeddings = query.getValue().toArray(new Double[query.getValue().size()]);
-            queryEmbeddings.put(topicID, new ArrayRealVector(embeddings));
-        }
-        return queryEmbeddings;
-    }
-
-    public static final Map<Integer, float[]> readQueryEmbeddingsFloating() {
-        Map<String, List<Double>> queryEmbeddingsString = null;
-        try {
-            queryEmbeddingsString = new ObjectMapper().readValue(
-                    DEFAULT_COLLECTION_PATH.resolve(QUERY_EMBEDDINGS_FILENAME).toFile(), Map.class);
-        } catch (IOException e) {
-            e.printStackTrace();
-            System.out.println("IOException while reading query embeddings JSON file");
-        }
-        Map<Integer, float[]> queryEmbeddings = new HashMap<>();
-        for (Map.Entry<String, List<Double>> query : queryEmbeddingsString.entrySet()) {
-            Integer topicID = Integer.parseInt(query.getKey());
-            float[] embeddings = new float[query.getValue().size()];
-            for (int i=0; i < EMBEDDINGS_DIMENSIONALITY; i++) {
-                embeddings[i] = (float) (double) query.getValue().get(i);
-            }
-            queryEmbeddings.put(topicID, embeddings);
-        }
-        return queryEmbeddings;
-    }
-
-    public static final Stream<String> streamDocEmbeddings() {
-        Stream<String> docEmbeddingsStream = null;
-        try {
-            docEmbeddingsStream = Files.lines(DEFAULT_COLLECTION_PATH.resolve(DOC_EMBEDDINGS_FILENAME));
-        } catch (IOException e) {
-            System.out.println("IOException while creating document embeddings stream");
-            e.printStackTrace();
-        }
-        return docEmbeddingsStream;
-    }
-
+    // ------------------------------------------------- topics-set ---------------------------------------------------
 
     /**
      * Reads and parses topics set using the defined structure in Topics.java file.
+     *
      * @returns A 50-length array with information about each topic, stored with the Topics.Topic structure.
      */
-    public static final Topics.Topic[] readTopicSet() {
+    public static final List<TopicQuery> readTopics() {
+        Map<Integer, Embedding> topicEmbeddings = parseTopicEmbeddings();
+
         // Define topics path
-        Path topicsPath = DEFAULT_COLLECTION_PATH.resolve(TOPICS_FILENAME);
+        Path topicsPath = COLLECTION_PATH.resolve(TOPICS_FILENAME);
 
         // Use Topics and Topics.Topic structure to parse the topic set information
         Topics.Topic[] topics;
@@ -325,18 +241,74 @@ public class CollectionReader {
             return null;
         }
 
-        // Returns an array consisted of each topic information (number, query, question and narrative)
-        return topics;
+        List<TopicQuery> topicsQuery = new ArrayList<>();
+        for (int topicID : topicEmbeddings.keySet()) {
+            topicsQuery.add(
+                    new TopicQuery(topicID, topics[topicID].query(), topicEmbeddings.get(topicID))
+            );
+        }
+        return topicsQuery;
     }
 
+    // ----------------------------------------------- topics-embeddings -----------------------------------------------
+
     /**
-     * Reads and parses relevance judgements.
-     * @returns Map object where each key is a topic ID with its corresponding list of relevant documents identificers.
+     * Parses topic embeddings JSON file and returns for each topic query identifier the embedding vector.
+     *
+     * @returns Map object formed by (topicID, topicEmbedding) pairs.
+     */
+    public static final Map<Integer, Embedding> parseTopicEmbeddings() {
+        Map<String, String> content = null;
+        try {
+            content = new ObjectMapper().readValue(
+                    COLLECTION_PATH.resolve(QUERY_EMBEDDINGS_FILENAME).toFile(), Map.class);
+        } catch (IOException e) {
+            e.printStackTrace();
+            System.out.println("IOException while reading query embeddings JSON file");
+        }
+        Map<Integer, Embedding> topicEmbeddings = content.entrySet().stream().collect(
+                Collectors.toMap(key -> Integer.parseInt(key.getKey()), value -> new Embedding(value.getValue().split(" ")))
+        );
+
+        return topicEmbeddings;
+    }
+
+    // ------------------------------------------------- doc-embeddings ------------------------------------------------
+
+    public static final Stream<String> streamDocEmbeddings() {
+        Stream<String> docEmbeddingsStream = null;
+        try {
+            docEmbeddingsStream = Files.lines(COLLECTION_PATH.resolve(DOC_EMBEDDINGS_FILENAME));
+        } catch (IOException e) {
+            System.out.println("IOException while creating document embeddings stream");
+            e.printStackTrace();
+        }
+        return docEmbeddingsStream;
+    }
+
+
+    public static Map<String, Embedding> readDocEmbeddings() {
+        Stream<String> stream = streamDocEmbeddings();
+        Map<String, Embedding> docEmbeddings = new HashMap<>();
+        for (Iterator<String> it = stream.iterator(); it.hasNext(); ) {
+            String[] lineContent = it.next().split(",");
+            Embedding embedding = new Embedding(Arrays.copyOfRange(lineContent, 1, lineContent.length));
+            docEmbeddings.put(lineContent[0], embedding);
+        }
+        return docEmbeddings;
+    }
+
+
+    // --------------------------------------------- relevance-judgements ----------------------------------------------
+
+    /**
+     * Reads and parses relevance judgements TXT file.
+     *
+     * @returns Map object where each key is a topic ID with its corresponding list of relevant documents identifiers.
      */
     public static final Map<Integer, List<String>> readRelevanceJudgements() {
         // Define relevance judgments path
-        Path collectionPath = DEFAULT_COLLECTION_PATH;
-        Path relevanceJudgementsPath = collectionPath.resolve(RELEVANCE_JUDGEMENTS_FILENAME);
+        Path relevanceJudgementsPath = COLLECTION_PATH.resolve(RELEVANCE_JUDGEMENTS_FILENAME);
 
         // Read an parse relevance judgments file
         CsvSchema schema = CsvSchema.builder().setColumnSeparator(' ').addColumn("topicID").addColumn("rank").addColumn("docID").addColumn("score").build();
@@ -355,7 +327,7 @@ public class CollectionReader {
 
         // Create the Map object where each topic ID is stored with its corresponding list of relevant documents identifiers
         Map<Integer, List<String>> topicRelevDocs = new HashMap<>();
-        for (int i=1; i < 51; i++) {
+        for (int i = 1; i < 51; i++) {
             List<String> emptyList = new ArrayList<>();    // firstly create an empty list
             topicRelevDocs.put(i, emptyList);                    // add to the map object the index i with the empty list
         }
@@ -370,61 +342,9 @@ public class CollectionReader {
         return topicRelevDocs;
     }
 
-    public static Map<Integer, List<TopDocument>> readCosineSimilarities(String foldername, boolean order) {
-        Map<Integer, List<TopDocument>> queryDocSimilarities = new HashMap<>();
-        File folder = new File(foldername);
-        for (int i = 1; i <= 50; i++) {
-            List<TopDocument> docSimilarities = new ArrayList<>();
-            try {
-                Stream<String> stream = Files.lines(Paths.get(folder.toString() + "/" + i + ".txt"));
-                stream.forEach(line -> {
-                    String[] lineContent = line.split(" ");
-                    docSimilarities.add(new TopDocument(lineContent[1],
-                            Double.parseDouble(lineContent[2]), Integer.parseInt(lineContent[0])));
-                });
-            } catch (IOException e) {
-                System.out.println("IOException while reading cosine similarities results in topic " + i);
-                e.printStackTrace();
-            }
-            if (order) {
-                Collections.sort(docSimilarities, new TopDocumentOrder());
-            }
-
-            queryDocSimilarities.put(i, docSimilarities);
-        }
-        return queryDocSimilarities;
-    }
-
-    public static Map<String, ArrayRealVector> readDocEmbeddings() {
-        Stream<String> stream = streamDocEmbeddings();
-        Map<String, ArrayRealVector> docEmbeddings = new HashMap<>();
-        for (Iterator<String> it = stream.iterator(); it.hasNext(); ) {
-            String line = it.next();
-            String[] lineContent = line.split(",");
-            String docID = lineContent[0];
-            lineContent = Arrays.copyOfRange(lineContent, 1, lineContent.length);
-            ArrayRealVector embedding = new ArrayRealVector(Arrays.stream(lineContent)
-                    .mapToDouble(Double::parseDouble).toArray());
-            docEmbeddings.put(docID, embedding);
-        }
-        return docEmbeddings;
-    }
-
-    public static Map<String, float[]> readDocEmbeddingsFloating() {
-        Stream<String> stream = streamDocEmbeddings();
-        Map<String, float[]> docEmbeddings = new HashMap<>();
-        for (Iterator<String> it = stream.iterator(); it.hasNext(); ) {
-            String line = it.next();
-            String[] lineContent = line.split(",");
-            String docID = lineContent[0];
-            lineContent = Arrays.copyOfRange(lineContent, 1, lineContent.length);
-            float[] embedding = new float[lineContent.length];
-            for (int i = 0; i < lineContent.length; i++) {
-                embedding[i] = (float) Float.parseFloat(lineContent[i]);
-            }
-            docEmbeddings.put(docID, embedding);
-        }
-        return docEmbeddings;
+    public static void main(String[] args) {
+        Map<Integer, Embedding> topicEmbeddings = parseTopicEmbeddings();
+        System.out.println(topicEmbeddings.get(0).toString());
     }
 
 }

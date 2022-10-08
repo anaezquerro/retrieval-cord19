@@ -1,22 +1,17 @@
-package es.udc.fi.irdatos.c2122.cords;
+package cords;
 
-import es.udc.fi.irdatos.c2122.schemas.TopDocument;
-import es.udc.fi.irdatos.c2122.schemas.Topics;
-import org.apache.lucene.index.IndexReader;
-import org.apache.lucene.search.*;
-import org.apache.lucene.search.similarities.LMJelinekMercerSimilarity;
-import org.apache.lucene.search.similarities.Similarity;
+import lucene.IdxReader;
+import lucene.IdxSearcher;
+import schemas.TopDocument;
+import schemas.TopicQuery;
 
 
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.*;
 
-import static es.udc.fi.irdatos.c2122.cords.CollectionReader.readRelevanceJudgements;
-import static es.udc.fi.irdatos.c2122.cords.CollectionReader.readTopicSet;
+import static cords.CollectionReader.*;
 
 
 /**
@@ -24,9 +19,10 @@ import static es.udc.fi.irdatos.c2122.cords.CollectionReader.readTopicSet;
  * of each topic.
  */
 public class QueryEvaluation {
-    private static Path INDEX_PATH = Paths.get(PoolIndexing.INDEX_FOLDERNAME);
-    private static Similarity similarity = PoolIndexing.similarity;
+    private static String INDEX_FOLDERNAME = PoolIndexing.INDEX_FOLDERNAME;
 
+
+    // --------------------------------------------- compute metrics ---------------------------------------------
     /**
      * Computes the average precision metric with the top documents returned by a query and the real relevant documents.
      * @param predictedRelevant Top documents returned by the query.
@@ -41,10 +37,10 @@ public class QueryEvaluation {
         // Loop for each document returned by the query
         for (int i = 0; i < Math.min(predictedRelevant.size(), k); i++) {
 
-            String cordID = predictedRelevant.get(i).cordID();
+            String cordID = predictedRelevant.get(i).cordUID();
 
             if (realRelevant.contains(cordID)) {
-                TPseen = TPseen + 1;          // add +1 to the TP seen
+                TPseen = TPseen + 1;              // add +1 to the TP seen
                 APk = APk + (TPseen / (i+1));     // add TPseen/i to the APk summary
             }
         }
@@ -56,17 +52,15 @@ public class QueryEvaluation {
     }
 
     /**
-     * Computes the mean average precision metric with the top documents returned by all topic queries and the real
-     * relevant documents of each topic.
+     * Computes the mean AP metric with the top documents returned by all topic queries and the real relevant documents of each topic.
      * @param predictedRelevants Map object with the predicted relevant documents of each topic.
      * @param realRelevants Map object with the real relevant documents of each topic obtained form the relevance_judgments.txt file.
      * @param k Threshold for calculating the precision in each document.
-     * @returns Mean average precision at k over all topics.
+     * @returns Mean AP at k over all topics.
      */
     public static Float meanAveragePrecision(Map<Integer, List<TopDocument>> predictedRelevants, Map<Integer, List<String>> realRelevants, int k) {
         float mAPk = 0;
 
-        // Loop for each topic
         for (Map.Entry<Integer, List<TopDocument>> topic : predictedRelevants.entrySet()) {
             float APk = averagePrecision(topic.getValue(), realRelevants.get(topic.getKey()), k);
             System.out.println("AveragePrecision at k=" + k + " in topic " + topic.getKey() + ": " + APk);
@@ -80,8 +74,10 @@ public class QueryEvaluation {
         return mAPk;
     }
 
+
+    // ------------------------------------------------- save results --------------------------------------------------
     /**
-     * Generated the txt file with the submission format specified in the TREC-COVID Challenge once the top documents
+     * Generated the TXT file with the submission format specified in the TREC-COVID Challenge once the top documents
      * of each topic have been obtained.
      * @param topicsTopDocs Map object with the top documents of each topic.
      * @param filename File name which results text file will be stored with.
@@ -114,7 +110,7 @@ public class QueryEvaluation {
 
             // add each document
             for (int i=0; i < cut; i++) {
-                String cordID = topDocuments.get(i).cordID();
+                String cordID = topDocuments.get(i).cordUID();
                 String rank = Integer.toString(i);
                 String score = Double.toString(topDocuments.get(i).score());
 
@@ -136,47 +132,18 @@ public class QueryEvaluation {
         }
     }
 
-    /**
-     * Calls the whole process of parsing topics set (XML file) and relevance judgements (TXT file), searching in the
-     * inverted index created in the first iteration, creating the results list and evaluating the queries performance.
-     * @param args At least two arguments are needed to be provided. The first argument is the cut-off of the documents
-     *             to submit in the results list. The second argument is the k value to compute the MAP@k metric.
-     * Optionally, the typeQuery ID can be passed. If it is 0, the simpleQuery (see README-Iteration2) will be computed.
-     *             If it is 1, the phraseQuery will be computed instead.
-     */
     public static void main(String[] args) {
-        if (args[0].equals("-h")) {
-            System.out.println("Información sobre la aplicación:");
-            System.out.println("Warning: Para lanzar las queries es necesario tener en el root el índice de Lucene");
-            System.out.println("Parámetros a introducir (en orden): <n>, <k> y <q>");
-            System.out.println("\tn: Número de top documentos que se devuelven y sobre los que se puede hacer reranking");
-            System.out.println("\tk: Número de top documentos sobre los que se computa la métrica MAP@k");
-            System.out.println("\tq: Valor entero que indica la query que se quiere lanzar (puede ser 0, 1 o 2)");
-            System.out.println("Para más información acerca de las queries, consultar el README");
-            return;
-        }
-
-        if (args.length < 3) {
-            System.out.println("Se deben introducir los parámetros <n>, <k> y <q>");
-            System.out.println("\tn: Número de top documentos que se devuelven y sobre los que se puede hacer reranking");
-            System.out.println("\tk: Número de top documentos sobre los que se computa la métrica MAP@k");
-            System.out.println("\tq: Valor entero que indica la query que se quiere lanzar (puede ser 0, 1 o 2)");
-            return;
-        }
         int n = Integer.parseInt(args[0]);
         int k = Integer.parseInt(args[1]);
         int typeQuery = Integer.parseInt(args[2]);
 
-        // Read the topics set
-        Topics.Topic[] topics = readTopicSet();
-
-        // Read the relevance judgements
+        // read topics set and relevance judgements
+        List<TopicQuery> topics = readTopics();
         Map<Integer, List<String>> topicRelevDocs = readRelevanceJudgements();
 
-        // Create IndexReader and IndexSearcher
-        ReaderSearcher creation = new ReaderSearcher(INDEX_PATH, similarity);
-        IndexReader ireader = creation.reader();
-        IndexSearcher isearcher = creation.searcher();
+        // create the reader and the searcher
+        IdxReader ireader = new IdxReader(INDEX_FOLDERNAME);
+        IdxSearcher isearcher = new IdxSearcher(ireader);
 
         // Make the queries for each topic query
         QueryComputation queryTopics = new QueryComputation(ireader, isearcher, topics, n);
@@ -185,11 +152,11 @@ public class QueryEvaluation {
         long end = System.currentTimeMillis();
 
         // Generate the results
-        String filenameResults = "round5-submission.txt";
-        generateResults(topicsTopDocs, filenameResults, n);
+        generateResults(topicsTopDocs, "round5-submission.txt", n);
 
         // Compute MAP@k metric
         float mAPk = meanAveragePrecision(topicsTopDocs, topicRelevDocs, k);
+        System.out.println("Final result: " + mAPk);
         System.out.println("Execution time (seconds): " + (end-start)*0.001);
     }
 

@@ -20,7 +20,8 @@ cord-19_2020-07-16*
 
 Index-EnglishAnalyzer/
 Index-StandardAnalyzer/
-Index-*/
+*Index-*/
+temp*/
 cosineSimilarity/
 
 2020-07-16/
@@ -40,5 +41,6 @@ referencesVector/
 *.synctex.gz
 *.toc
 *.nav
-
-*.txt
+*.bbl
+*.blg
+*.snm

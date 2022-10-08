@@ -1,4 +1,4 @@
-package es.udc.fi.irdatos.c2122.schemas;
+package formats;
 
 import java.util.List;
 

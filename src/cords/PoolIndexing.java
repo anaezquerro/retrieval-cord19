@@ -1,22 +1,23 @@
-package es.udc.fi.irdatos.c2122.cords;
+package cords;
 
-import es.udc.fi.irdatos.c2122.schemas.Metadata;
+import lucene.IdxReader;
+import lucene.IdxWriter;
+import formats.Metadata;
 import org.apache.lucene.document.*;
 import org.apache.lucene.index.*;
-import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.similarities.LMJelinekMercerSimilarity;
 import org.apache.lucene.search.similarities.Similarity;
+import schemas.Embedding;
+import schemas.ParsedArticle;
 
-import java.io.IOException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-import static es.udc.fi.irdatos.c2122.cords.AuxiliarFunctions.*;
-import static es.udc.fi.irdatos.c2122.cords.CollectionReader.*;
+import static util.AuxiliarFunctions.*;
+import static cords.CollectionReader.*;
 
 /**
  * Implementation of the parallel indexing process of the JSON files content once the metadata.csv and cord-embeddings
@@ -28,11 +29,14 @@ import static es.udc.fi.irdatos.c2122.cords.CollectionReader.*;
  *      similarity: Similarity object to write the index.
  */
 public class PoolIndexing {
-    private Path POOL_COLLECTION_PATH = CollectionReader.DEFAULT_COLLECTION_PATH;
+    private Path POOL_COLLECTION_PATH = COLLECTION_PATH;
+    private String TEMP_PREFFIX = "temp";
     public static String INDEX_FOLDERNAME = "Index-LMJelinekMercer";
-    public static IndexWriter iwriter;
+    private String TEMP_INDEX_FOLDERNAME = TEMP_PREFFIX + INDEX_FOLDERNAME;
+    public static IdxWriter iwriter;
     public static Similarity similarity = new LMJelinekMercerSimilarity(0.1F);
-    public static Map<String, float[]> docEmbeddings;
+    public static Map<String, Embedding> docEmbeddings;
+    private final int numCores =  Runtime.getRuntime().availableProcessors();
 
 
     private class WorkerIndexing implements Runnable {
@@ -50,14 +54,13 @@ public class PoolIndexing {
         }
 
         /** 
-        * When the thread starts its tasks, it is in charge of indexing the metadata fields (cordID, title, abstract)
-         * and the article content referenced in the PMC and PDF paths.
+        * When the thread starts its tasks, it is in charge of indexing the metadata fields:
+         *      (cordUID, title, abstract, doc embedding, authors, body, references)
          */
         @Override
         public void run() {
             for (Metadata rowMetadata : metadataSlice) {
-                // Read PMC and PDF paths
-                ParsedArticle parsedArticle = parseArticle(rowMetadata);
+                ParsedArticle parsedArticle = parseRowMetadata(rowMetadata);
                 if (Objects.isNull(parsedArticle)) {
                     continue;
                 }
@@ -65,9 +68,9 @@ public class PoolIndexing {
                 Document doc = new Document();
 
                 // Add rowMetadata UID as stored field
-                doc.add(new StoredField("cordID", rowMetadata.cordUid()));
+                doc.add(new StoredField("cordUID", rowMetadata.cordUid()));
 
-                // Add title information as stored, tokenized and term-vectorized
+                // title: stored, tokenized, term-vectorized
                 FieldType titleFieldType = new FieldType();
                 titleFieldType.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS);
                 titleFieldType.setStored(true);
@@ -75,7 +78,7 @@ public class PoolIndexing {
                 titleFieldType.setStoreTermVectors(true);
                 doc.add(new Field("title", rowMetadata.title(), titleFieldType));
 
-                // Add abstract information as stored, tokenized and term-vectorized
+                // abstract: stored, tokenized, term-vectorized
                 FieldType abstractFieldType = new FieldType();
                 abstractFieldType.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS);
                 abstractFieldType.setStored(true);
@@ -83,13 +86,13 @@ public class PoolIndexing {
                 abstractFieldType.setStoreTermVectors(true);
                 doc.add(new Field("abstract", rowMetadata.abstrac(), abstractFieldType));
 
-                // Add document embedding as a KnnVectorField
+                // document embedding
                 if (docEmbeddings.keySet().contains(rowMetadata.cordUid())) {
-                    float[] docEmbedding = docEmbeddings.get(rowMetadata.cordUid());
+                    float[] docEmbedding = docEmbeddings.get(rowMetadata.cordUid()).getFloat();
                     doc.add(new KnnVectorField("embedding", docEmbedding));
                 }
 
-                // Add body text as tokenized and term-vectorized (but not stored)
+                // body: tokenized, term-vectorized, not stored
                 FieldType bodyFieldType = new FieldType();
                 bodyFieldType.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS);
                 bodyFieldType.setStored(false);
@@ -97,7 +100,7 @@ public class PoolIndexing {
                 bodyFieldType.setStoreTermVectors(true);
                 doc.add(new Field("body", parsedArticle.body(), bodyFieldType));
 
-                // Add authors as stored, tokenized but not term-vectorized
+                // authors: stored, tokenized, not term-vectorized
                 FieldType authorsFieldType = new FieldType();
                 authorsFieldType.setIndexOptions(IndexOptions.DOCS_AND_FREQS);
                 authorsFieldType.setStored(true);
@@ -105,23 +108,14 @@ public class PoolIndexing {
                 authorsFieldType.setStoreTermVectors(false);
                 doc.add(new Field("authors", parsedArticle.authors(), authorsFieldType));
 
-                // Add parsed references as stored file
+                // references: stored
                 FieldType refFieldType = new FieldType();
                 refFieldType.setStored(true);
                 refFieldType.setTokenized(false);
                 refFieldType.setIndexOptions(IndexOptions.NONE);
                 doc.add(new Field("references", parsedArticle.textReferences(), refFieldType));
 
-                // write the document in the index
-                try {
-                    iwriter.addDocument(doc);
-                } catch (CorruptIndexException e) {
-                    System.out.println("CorruptIndexException while trying to write the document " + rowMetadata.cordUid());
-                    e.printStackTrace();
-                } catch (IOException e) {
-                    System.out.println("IOException while trying to write the document " + rowMetadata.cordUid());
-                    e.printStackTrace();
-                }
+                iwriter.addDocument(doc);
             }
             System.out.println("Worker " + numWorker + " : Finished");
         }
@@ -129,87 +123,98 @@ public class PoolIndexing {
 
 
     /**
-     * Starts the executing pool for collection indexing. By default, the number of workers will be the number of
-     * cores in the machine.
+     * Starts the executing pool for collection indexing.
+     * -- First stage -- Basic indexing
+     * 1) Prepare folders. If INDEX_FOLDERNAME and/or TEMP_INDEX_FOLDERNAME already exist, delete them and create a new
+     * IndexWriter of a temporary folder
+     * 2) Read metadata.csv and embeddings.csv.
+     * 3) Create the executor service to launch parallel tasks.
+     * 4) Launch tasks.
+     * 5) Wait until termination and close the executor and the IndexWriter
      */
     public void launch(boolean getReferences) {
-        // Read metadata.csv and document embeddings
-        List<Metadata> metadata = readMetadata();
-        docEmbeddings = readDocEmbeddingsFloating();
-
-        // create IndexWriter and configure it
+        // 1)
         deleteFolder(INDEX_FOLDERNAME);
-        iwriter = createIndexWriter(INDEX_FOLDERNAME);
+        deleteFolder(TEMP_INDEX_FOLDERNAME);
+        iwriter = new IdxWriter(TEMP_INDEX_FOLDERNAME);
 
-        // Create the ExecutorService
-        final int numCores = Runtime.getRuntime().availableProcessors();
+        // 2)
+        List<Metadata> metadata = readMetadata();
+        docEmbeddings = readDocEmbeddings();
+
+        // 3)
         System.out.println("Indexing metadata articles with " + numCores + " cores");
         ExecutorService executor = Executors.newFixedThreadPool(numCores);
-
-        // Give a slice of articles to each worker
         System.out.println("A total of " + metadata.size() + " articles will be parsed and indexed");
         Integer[] workersDivision = coalesce(numCores, metadata.size());
 
-        for (int i=0; i < numCores; i++) {
+        // 4)
+        for (int i = 0; i < numCores; i++) {
             int start = workersDivision[i];
-            int end = workersDivision[i+1];
+            int end = workersDivision[i + 1];
             List<Metadata> metadataSlice = metadata.subList(start, end);
             System.out.println("Thread " + i + " is indexing articles from " + start + " to " + end);
             WorkerIndexing worker = new WorkerIndexing(metadataSlice, i);
             executor.execute(worker);
         }
 
-        // End the executor
+        // 5)
         executor.shutdown();
         try {
             executor.awaitTermination(20, TimeUnit.MINUTES);
+
         } catch (final InterruptedException e) {
             e.printStackTrace();
             System.exit(-2);
         }
 
+        iwriter.commit();
+        iwriter.close();
 
-        if (getReferences) {
-            System.out.println("Adding references to the index...");
-            try { iwriter.commit(); }
-            catch (IOException e) { e.printStackTrace(); return; }
 
-            ReaderSearcher objReaderSearcher = new ReaderSearcher(
-                    Paths.get(INDEX_FOLDERNAME), similarity);
-            IndexReader reader = objReaderSearcher.reader();
-            IndexSearcher searcher = objReaderSearcher.searcher();
+        /**
+         * -- Second stage -- Adding surrogate keys to the final index
+         * 1) Create a IndexReader from the temporary folder where the index is stored.
+         * 2) Create a new IndexWriter where the final index will be stored.
+         * 3) Sequentially, read all documents saved in the temporary folder and add them in the final folder
+         * with the new surrogate key (cordID).
+         * 4) Close de IndexReader and IndexWriter.
+         * 5) Delete the temporary folder.
+         */
 
-            PageRank referencesIndexing = new PageRank(iwriter, reader, searcher, true);
-            referencesIndexing.launch();
-        } else {
-            try {
-                iwriter.commit();
-                iwriter.close();
-            } catch (CorruptIndexException e) {
-                System.out.println("CorruptIndexException while closing the index writer");
-                e.printStackTrace();
-            } catch (IOException e) {
-                System.out.println("IOException while closing the index writer");
-                e.printStackTrace();
-            }
+        // 1)
+        IdxReader ireader = new IdxReader(TEMP_INDEX_FOLDERNAME);
+
+        // 2)
+        iwriter = new IdxWriter(INDEX_FOLDERNAME);
+
+        // 3)
+        int cordID = 0;
+        for (int docID = 0; docID < ireader.numDocs(); docID++) {
+            Document doc = ireader.document(docID);
+            doc.add(new StoredField("cordID", cordID));
+            iwriter.addDocument(doc);
+            cordID++;
         }
+
+        // 4)
+        ireader.close();
+        iwriter.commit();
+        iwriter.close();
+
+        // 5)
+        deleteFolder(TEMP_INDEX_FOLDERNAME);
     }
+
 
     public static void main(String[] args) {
         PoolIndexing pool = new PoolIndexing();
         long start;
         long end;
-        if (args.length > 0) {
-            start = System.currentTimeMillis();
-            pool.launch(true);
-            end = System.currentTimeMillis();
-        } else {
-            start = System.currentTimeMillis();
-            pool.launch(false);
-            end = System.currentTimeMillis();
-        }
+        start = System.currentTimeMillis();
+        pool.launch(true);
+        end = System.currentTimeMillis();
         System.out.println("Indexing time (seconds): " + (end-start)*0.001);
-
     }
 
 }

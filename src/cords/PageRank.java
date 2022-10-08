@@ -1,59 +1,85 @@
-package es.udc.fi.irdatos.c2122.cords;
+package cords;
 
+import lucene.IdxReader;
+import lucene.IdxSearcher;
+import lucene.IdxWriter;
 import org.apache.commons.math3.linear.ArrayRealVector;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.StoredField;
-import org.apache.lucene.index.*;
 import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.*;
+import schemas.*;
 
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-import static es.udc.fi.irdatos.c2122.cords.AuxiliarFunctions.*;
+import static util.AuxiliarFunctions.*;
+import static cords.PoolIndexing.INDEX_FOLDERNAME;
 
 
 /**
  * Computes PageRank of the complete collection using the indexed title and authors references of each article.
+ *
+ * Check notation!
+ * In order to represent the directional relations between documents, consider this notation:
+ * oref -> tref               o = original, t = target
+ *
+ * orefVec  : Inverse references vector of a set vector. It gives info about which docs point the set vector.
+ * trefVec  : References vector of a set vector. It gives info about which docs are pointed by the set vector.
+ *
+ * key: Please understand these definitions in order to clearly read the code.
  */
 public class PageRank {
-    IndexWriter iwriter;
-    IndexSearcher isearcher;
-    IndexReader ireader;
-    private boolean search;   // if it is true, assumes that references are stored in the referencesFolder
-    private boolean show = true;
-    private Map<String, Integer> cord2index = new HashMap<>();
+    /* Global variables (lucene objects)
+    iwriter    [IdxWriter]      : Friendly-user implementation of the Apache Lucene IndexWriter class.
+    ireader    [IdxReader]      : Friendly-user implementation of the Apache Lucene IndexReader class.
+    isearcher  [IdxSearcher]    : Friendly-user implementation of the Apache Lucene IndexSearcher class.
+     */
+    private IdxWriter iwriter;
+    private IdxReader ireader;
+    private IdxSearcher isearcher;
 
-    // folders to store information
-    public static String referencesFolder = "references";
-    public static String vectorsFolder = "referencesVector";
+    /* Global variables (paths)
+    SAVE_INDEX_FOLDERNAME    [String]   : Path where a save copy of the Apache Lucene index is stored (in case of errors).
+    TEMP_INDEX_FOLDERNAME    [String]   : Path where we store a temporary copy of the index that is being read.
+     */
+    private final String TEMP_PREFFIX = "temp";
+    private final String SAVE_PREFFIX = "save";
+    private final String SAVE_INDEX_FOLDERNAME = SAVE_PREFFIX + INDEX_FOLDERNAME;
+    private final String TEMP_INDEX_FOLDERNAME = TEMP_PREFFIX + INDEX_FOLDERNAME;
+
+
+    /* Global variables:
+    VECTOR_ITEM_SEP   [String]              : String separator used to convert a vector to a string sequence.
+    countPageRank     [ArrayRealVector]     : PageRank vector considering the references count.
+    binaryPageRank    [ArrayRealVector]     : PageRank vector considering only binary references.
+
+     */
+    public static String VECTOR_ITEM_SEP = " ";
+    private ArrayRealVector countPageRank;
+    private ArrayRealVector binaryPageRank;
+
+
+
+    /*
+    Some notation:
+    trefCNVec           : Count (C) normalized (N) references vector (t).
+    trefBNVec           : Binary (B) normalized (B) references vector (t).
+    orefCNVec           : Count (C) normalized (N) inverse references vector (o).
+    orefBNvec           : Binary (B) normalized (N) inverse references vector (o).
+     */
 
     // page rank parameters
     int m = 2;
-    int iterations = 100;
-    float alpha = 0.1F;
+    private int iterations = 100;
+    public static float alpha = 0.1F;
 
-
-    public PageRank(IndexWriter iwriter, IndexReader ireader, IndexSearcher isearcher, boolean search) {
-        this.iwriter = iwriter;
-        this.isearcher = isearcher;
-        this.ireader = ireader;
-        this.search = search;
-        if (search) {
-            deleteCreateFolder(referencesFolder);
-        }
-        deleteCreateFolder(vectorsFolder);
-    }
 
     private class WorkerSearch implements Runnable {
         private int start;
@@ -69,309 +95,210 @@ public class PageRank {
         @Override
         public void run() {
             long tstart = System.currentTimeMillis();
+
             for (int docID = start; docID < end; docID++) {
-                if (show && Math.floorMod(docID, 500) == 0) {
+                if (Math.floorMod(docID, 500) == 0) {
                     System.out.println(workerID + ": is in docID=" + docID);
                 }
-                ArrayRealVector referencesVector = new ArrayRealVector(ireader.numDocs(), 0);
-                ArrayRealVector referencesCountVector = new ArrayRealVector(ireader.numDocs(), 0);
 
-                try {
-                    // 1. Read document in the collection
-                    Document doc = ireader.document(docID);
+                CompressedRefsVector trefVec = new CompressedRefsVector(ireader.numDocs());
+                ReferencesVector trefNormVec;
+                Document doc = ireader.document(docID);
 
-                    // consider this document has no references
-                    if (doc.get("references").length() == 0) {
-                        continue;
-                    }
+                if (!Objects.isNull(doc.get("trefVec"))) {
+                    continue;
+                }
 
-                    List<String> references = Arrays.stream(doc.get("references").split("\n")).toList();
-                    List<String> newReferences = new ArrayList<>();
-                    List<String> newReferencesID = new ArrayList<>();
-                    List<String> newReferencesCount = new ArrayList<>();
+                if (doc.get("references").length() > 0) {
+                    List<String> trefs = Arrays.stream(doc.get("references").split(ParsedArticle.REFERENCES_SEPARATOOR)).toList();
 
                     // 2. Obtain article references and search them in the index
-                    for (String reference : references) {
-                        String[] refItems = reference.split("\t");
-                        String refTitle = refItems[0];
-                        String refAuthors = refItems[1];
-                        String refCount = refItems[2];
+                    for (String tref : trefs) {
+                        String[] trefItems = tref.split(ParsedArticle.ParsedReference.ITEM_REFS_SEPARATOR);
+                        String trefTitle = trefItems[0];
+                        String trefAuthors = trefItems[1];
+                        int trefCount = Integer.parseInt(trefItems[2]);
 
                         // construct boolean query
                         BooleanQuery.Builder booleanQueryBuilder = new BooleanQuery.Builder();
 
-                        // construct query parser for the title of the reference
-                        QueryParser queryParser = new QueryParser("title", new StandardAnalyzer());
-                        Query query = queryParser.parse(refTitle);
-                        booleanQueryBuilder.add(query, BooleanClause.Occur.SHOULD);
-
-                        // query for authors of the reference
+                        // construct query parser for the title and authors of the tref
+                        QueryParser parserTitle = new QueryParser("title", new StandardAnalyzer());
                         QueryParser parserAuthors = new QueryParser("authors", new StandardAnalyzer());
-                        Query queryAuthor = parserAuthors.parse(refAuthors);
+                        Query queryTitle;
+                        Query queryAuthor;
+                        try {
+                            queryTitle = parserTitle.parse(trefTitle);
+                            queryAuthor = parserAuthors.parse(trefAuthors);
+                        } catch (ParseException e) {
+                            e.printStackTrace();
+                            continue;
+                        }
+                        booleanQueryBuilder.add(queryTitle, BooleanClause.Occur.SHOULD);
                         booleanQueryBuilder.add(queryAuthor, BooleanClause.Occur.SHOULD);
 
                         // build the query and execute
                         BooleanQuery booleanQuery = booleanQueryBuilder.build();
-                        List<String> docRefs = new ArrayList<>();
                         TopDocs topDocs = isearcher.search(booleanQuery, 100);
                         int j = 0;
-                        for (int i = 0; (i < Math.min(topDocs.scoreDocs.length, topDocs.totalHits.value)) && (j<m); i++) {
-                            int docRefID = topDocs.scoreDocs[i].doc;
-                            List<String> docRefTitleWords = Arrays.stream(
-                                    parse(ireader.document(docRefID).get("title")).split(" "))
-                                    .distinct().toList();
+                        for (int i = 0; (i < Math.min(topDocs.scoreDocs.length, topDocs.totalHits.value)) && (j < m); i++) {
+                            Document matchDoc = ireader.document(topDocs.scoreDocs[i].doc);
+                            List<String> matchTitleWords = Arrays.stream(matchDoc.get("title").split(" ")).distinct().toList();
 
                             // number of words from doc that are not in ref
-                            int mismatches = (int) docRefTitleWords.stream()
-                                    .filter(x -> !refTitle.contains(x)).count();
-                            if (mismatches > 0.1*docRefTitleWords.size()) {continue;}
+                            int mismatches = (int) matchTitleWords.stream().filter(x -> !trefTitle.contains(x)).count();
+                            if (mismatches > 0.1 * matchTitleWords.size()) {
+                                continue;
+                            }
 
                             // number of words from ref that are not in doc
-                            mismatches = (int) Arrays.stream(refTitle.split("\\s+"))
-                                    .filter(x -> !docRefTitleWords.contains(x)).count();
-                            if (mismatches > 0.1*refTitle.split("\\s+").length) {continue;}
+                            mismatches = (int) Arrays.stream(trefTitle.split("\\s+"))
+                                    .filter(x -> !matchTitleWords.contains(x)).count();
+                            if (mismatches > 0.1 * trefTitle.split("\\s+").length) {
+                                continue;
+                            }
 
                             // update vector entry and add cordID to the list accumulator
-                            referencesVector.setEntry(docRefID, 1);
-                            referencesCountVector.setEntry(docRefID, Double.parseDouble(refCount));
-                            docRefs.add(ireader.document(docRefID).get("cordID"));
+                            int matchCordID = Integer.parseInt(matchDoc.get("cordID"));
+                            trefVec.add(matchCordID, trefCount);
                             j++;
                         }
-
-                        // update references list
-                        if (docRefs.size() != 0) {
-                            newReferences.add(reference + "\t" + String.join(" ", docRefs));
-                            newReferencesID.addAll(docRefs);
-                            String[] counts = new String[docRefs.size()];
-                            Arrays.fill(counts, refCount);
-                            newReferencesCount.addAll(Arrays.stream(counts).toList());
-                        } else {
-                            newReferences.add(reference);
-                        }
                     }
-                    if (referencesVector.getL1Norm() == 0.0) {
-                        continue;
-                    }
-                    // normalize vectors and save them
-                    referencesVector = normalize(referencesVector);
-                    referencesCountVector = normalize(referencesCountVector);
-                    saveVectors(referencesVector, referencesCountVector, String.valueOf(docID));
-
-                    // save references in a file
-                    FileWriter file = createFileWriter(referencesFolder + "/" + doc.get("cordID"));
-                    file.write(String.join(" ", newReferencesID) + "\n");
-                    file.write(String.join(" ", newReferencesCount));
-                    file.close();
-
-                    // add to the document new references
-                    doc.removeField("references");
-                    doc.add(new StoredField("references", String.join("\n", newReferences)));
-                    iwriter.updateDocument(new Term("cordID", doc.get("cordID")), doc);
                 }
-                catch (IOException e) { e.printStackTrace(); return; }
-                catch (ParseException e) {
-                    System.out.println("ParseException while constructing the reference query of the " +
-                            "document " + docID);
-                    e.printStackTrace();
-                    return;
-                }
+
+                // normalize the binary and count vectors
+                trefNormVec = trefVec.toReferencesVector(true);
+
+                // add this 3 vectors in string format to the Apache Lucene Index
+                doc.add(new StoredField("trefVec", vector2string(trefVec.toCountVector(), VECTOR_ITEM_SEP)));
+                doc.add(new StoredField("trefCNVec", trefNormVec.count2string()));
+                doc.add(new StoredField("trefBNVec", trefNormVec.binary2string()));
+                iwriter.addDocument(doc);
             }
             long tend = System.currentTimeMillis();
-            System.out.println("worker" + workerID + " run time (in seconds): " + (tend-tstart)*0.001);
+            System.out.println("worker" + workerID + " run time (in seconds): " + (tend - tstart) * 0.001);
         }
     }
 
-    private class WorkerPageRank implements Runnable {
-        private int row;
-        private String preffix;
-
-        public WorkerPageRank(int row) {
-            this.row = row;
-            if (row == 0) {
-                this.preffix = "ref";
-            } else if (row == 1) {
-                this.preffix = "count";
-            }
-        }
-
-        private void transposeFiles() {
-            System.out.println("Transposing files of preffix " + preffix);
-
-            // 1. Create an array of file writers (columns)
-            FileWriter[] files = new FileWriter[ireader.numDocs()];
-            IntStream.range(0, ireader.numDocs())
-                    .forEach(x -> {
-                        files[x] = createFileWriter(vectorsFolder + "/" + preffix + x);
-                    });
-
-            // 2. For each document stored in `references` folder, add element at position i in files[i]
-            for (int cordID = 0; cordID < ireader.numDocs(); cordID++) {
-                System.out.println(preffix + ": " + cordID);
-                String[] references;
-                try {
-                    if (!exists(vectorsFolder + "/" + cordID)) {
-                        references = new String[ireader.numDocs()];
-                        Arrays.fill(references, String.valueOf(1 / ireader.numDocs()));
-                    } else {
-                        references = new String(Files.readAllBytes(
-                                Paths.get(vectorsFolder, String.valueOf(cordID)))).split("\n")[row].split(" ");
-                    }
-                    // write references
-                    for (int refID = 0; refID < ireader.numDocs(); refID++) {
-                        files[refID].write(references[refID] + " ");
-                    }
-                } catch (IOException e) {
-                    System.out.println("IOException while reading file " + vectorsFolder + "/" + cordID);
-                    e.printStackTrace();
-                    return;
-                }
-            }
-            Arrays.stream(files).forEach(file -> {
-                try { file.close(); } catch (IOException e) {e.printStackTrace(); }
-            });
-            System.out.println(preffix + " has finished transposing");
-        }
-
-        private void computePageRank() {
-            try {
-                ArrayRealVector pageRank = new ArrayRealVector(ireader.numDocs(), (double) 1/ireader.numDocs());
-                ArrayRealVector transition = new ArrayRealVector(ireader.numDocs());
-                for (int iter = 0; iter < iterations; iter++) {
-                    for (int irow = 0; irow < ireader.numDocs(); irow++) {  // iterate over matrix rows
-                        // read references vector of the irow doc
-                        String[] row = new String(Files.readAllBytes(Paths.get(referencesFolder, preffix + irow)))
-                                .split(" ");
-                        ArrayRealVector rowReference = new ArrayRealVector(Arrays.stream(row).
-                                mapToDouble(x -> Double.parseDouble(x)).toArray());
-
-                        // compute page rank
-                        transition.setEntry(irow, pageRank.dotProduct(rowReference));
-                    }
-                    if (pageRank.equals(transition)) {break;}
-                    else {pageRank = transition;}
-                }
-
-                // update page rank
-                for (int docID = 0; docID < ireader.numDocs(); docID++) {
-                    Document doc;
-                    doc = ireader.document(docID);
-                    doc.add(new StoredField("PageRank" + row, pageRank.getEntry(docID)));
-                    iwriter.updateDocument(new Term("cordID", doc.get("cordID")), doc);
-                }
-            } catch (IOException e) {e.printStackTrace(); }
-        }
-
-
-        @Override
-        public void run() {
-            long tstart = System.currentTimeMillis();
-            transposeFiles();
-            long tend = System.currentTimeMillis();
-            System.out.println("WorkerPageRank-" + row + " transposing runtime (in seconds): " + (tend-tstart)*0.001);
-
-            tstart = System.currentTimeMillis();
-            computePageRank();
-            tend = System.currentTimeMillis();
-            System.out.println("WorkerPageRank-" + row + " page rank runtime (in seconds): " + (tend-tstart)*0.001);
-        }
-    }
-
-    private class WorkerWriter implements Runnable {
-        String[] filesSlice;
+    private class WorkerInverse implements Runnable {
         int workerID;
+        int start;
+        int end;
 
-        public WorkerWriter(String[] filesSlice, int workerID) {
-            this.filesSlice = filesSlice;
+        private WorkerInverse(int start, int end, int workerID) {
             this.workerID = workerID;
+            this.start = start;
+            this.end = end;
         }
 
-        /**
-         * Assumes references/ folder has all stored references per cordID and saves the corresponding vector.
-         */
         @Override
         public void run() {
-            for (String cordID : filesSlice) {
-                try {
-                    ArrayRealVector referencesVector = new ArrayRealVector(ireader.numDocs());
-                    ArrayRealVector referencesVectorCount = new ArrayRealVector(ireader.numDocs());
-                    String[] content = new String(
-                            Files.readAllBytes(Paths.get(referencesFolder, cordID))).split("\n");
-                    String[] references = content[0].split(" "); String[] referencesCount = content[1].split(" ");
-                    for (int i=0; i < references.length; i++) {
-                        referencesVector.setEntry(cord2index.get(references[i]), 1);
-                        referencesVectorCount.setEntry(cord2index.get(references[i]), Double.parseDouble(referencesCount[i]));
+
+            Map<Integer, ReferencesVector> orefVecs = new HashMap<>();
+            IntStream.range(start, end).forEach(i -> {
+                orefVecs.put(i, new ReferencesVector(ireader.numDocs()));
+            });
+            Map<Integer, Integer> cord2doc = new HashMap<>();
+
+            for (int docID = 0; docID < ireader.numDocs(); docID++) {
+                Document doc = ireader.document(docID);
+                int ocordID = Integer.parseInt(doc.get("cordID"));
+                if (start <= ocordID || ocordID < end) {
+                    cord2doc.put(ocordID, docID);
+                }
+                ReferencesVector trefVec = new ReferencesVector(doc.get("trefBNVec"), doc.get("trefCNVec"));
+                IntStream.range(start, end).forEach(
+                        tcordID -> {
+                            orefVecs.get(tcordID).setEntries(tcordID, trefVec.getEntries(tcordID));
+                        }
+                );
+            }
+
+            orefVecs.entrySet().stream().forEach(
+                    entry -> {
+                        Document doc = ireader.document(cord2doc.get(entry.getKey()));
+                        doc.add(new StoredField("orefNCVec", orefVecs.get(entry.getKey()).count2string()));
+                        doc.add(new StoredField("orefNBVec", orefVecs.get(entry.getKey()).binary2string()));
                     }
-                    saveVectors(normalize(referencesVector), normalize(referencesVectorCount), String.valueOf(cord2index.get(cordID)));
-                } catch (IOException e) {e.printStackTrace(); return;}
+            );
+        }
+    }
+
+
+    private ArrayRealVector updatePageRank(ArrayRealVector vectorPageRank, String fname) {
+        for (int iter = 0; iter < iterations; iter++) {
+            ArrayRealVector newVector = vectorPageRank.copy();
+            ArrayRealVector oldVector = vectorPageRank.copy();
+            IntStream.range(0, ireader.numDocs()).forEach(
+                    docID -> {
+                        Document doc = ireader.document(docID);
+                        int cordID = Integer.parseInt(doc.get("cordID"));
+                        newVector.setEntry(
+                                cordID, oldVector.dotProduct(string2vector(doc.get(fname), VECTOR_ITEM_SEP))
+                        );
+                    }
+            );
+            if (newVector.equals(oldVector)) {
+                break;
+            } else {
+                vectorPageRank = newVector.copy();
             }
         }
+        return vectorPageRank;
     }
 
-    public ArrayRealVector normalize(ArrayRealVector vector) {
-        int n = vector.getDimension();
-        double norm = vector.getL1Norm();
-        vector.mapMultiplyToSelf(1/norm);
-        vector.mapMultiplyToSelf(1-alpha);
-        vector.mapMultiplyToSelf(alpha/n);
-        return vector;
-    }
+    private void computePageRank() {
+        Map<String, ArrayRealVector> vectors = new HashMap<>() {{
+            put("orefNBVec", binaryPageRank);
+            put("orefNCVec", countPageRank);
+        }};
+        Map<String, ArrayRealVector> result = vectors.entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, entry -> updatePageRank(entry.getValue(), entry.getKey())));
+        binaryPageRank = result.get("orefNBVec");
+        countPageRank = result.get("orefNCVec");
 
-    public void saveVectors(ArrayRealVector v1, ArrayRealVector v2, String filename) {
-        FileWriter file = createFileWriter(vectorsFolder + "/" + filename);
-        String[] s1 = new String[ireader.numDocs()];
-        String[] s2 = new String[ireader.numDocs()];
         for (int docID = 0; docID < ireader.numDocs(); docID++) {
-            s1[docID] = String.valueOf(v1.getEntry(docID));
-            s2[docID] = String.valueOf(v2.getEntry(docID));
-        }
-        try {
-            file.write(String.join(" ", s1));
-            file.write("\n");
-            file.write(String.join(" ", s2));
-            file.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-            System.out.println("IOException while writing file " + vectorsFolder + "/" + filename);
+            Document doc = ireader.document(docID);
+            int cordID = Integer.parseInt(doc.get("cordID"));
+            doc.add(new StoredField("binaryPageRank", binaryPageRank.getEntry(cordID)));
+            doc.add(new StoredField("countPageRank", countPageRank.getEntry(cordID)));
         }
     }
+
 
     public void launch() {
+        deleteFolder(TEMP_INDEX_FOLDERNAME);
+        if (exists(SAVE_INDEX_FOLDERNAME)) {
+            deleteFolder(INDEX_FOLDERNAME);
+            renameFolder(SAVE_INDEX_FOLDERNAME, INDEX_FOLDERNAME);
+        }
+
         long tstart = System.currentTimeMillis();
-        final int numCores = Runtime.getRuntime().availableProcessors();
+        int numCores = Runtime.getRuntime().availableProcessors();
         ExecutorService executor = Executors.newFixedThreadPool(numCores);
 
-        if (search) {
-            System.out.println("Indexing references with " + numCores + " cores");
-            System.out.println("A total of " + ireader.numDocs() + " articles will be indexed");
-            Integer[] workersDivision = coalesce(numCores, ireader.numDocs());
+        /**
+         * -------- First stage SEARCHING --------
+         * Compute searching of matches between references and documents.
+         */
+        duplicateFolder(INDEX_FOLDERNAME, SAVE_INDEX_FOLDERNAME);
+        renameFolder(INDEX_FOLDERNAME, TEMP_INDEX_FOLDERNAME);
+        iwriter = new IdxWriter(INDEX_FOLDERNAME);
+        ireader = new IdxReader(TEMP_INDEX_FOLDERNAME);
+        isearcher = new IdxSearcher(ireader);
 
-            for (int workerID = 0; workerID < numCores; workerID++) {
-                int start = workersDivision[workerID];
-                int end = workersDivision[workerID + 1];
-                System.out.println("Thread " + workerID + " is indexing articles from " + start + " to " + end);
-                WorkerSearch worker = new WorkerSearch(start, end, workerID);
-                executor.execute(worker);
-            }
-        } else {
-            IntStream.range(0, ireader.numDocs()).forEach(x -> {
-                try {
-                    Document doc = ireader.document(x);
-                    cord2index.put(doc.get("cordID"), x);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            });
-            String[] files = new File(referencesFolder).list();
-            Integer[] workersDivision = coalesce(numCores, files.length);
+        System.out.println("Indexing references with " + numCores + " cores");
+        System.out.println("A total of " + ireader.numDocs() + " articles will be indexed");
+        Integer[] workersDivision = coalesce(numCores, ireader.numDocs());
 
-            for (int workerID = 0; workerID < numCores; workerID++) {
-                String[] filesSlice = Arrays.copyOfRange(files, workersDivision[workerID], workersDivision[workerID + 1]);
-                System.out.println("Thread " + workerID + " is storing references vector of "
-                        + filesSlice.length + " articles");
-                WorkerWriter worker = new WorkerWriter(filesSlice, workerID);
-                executor.execute(worker);
-            }
+        for (int workerID = 0; workerID < numCores; workerID++) {
+            int start = workersDivision[workerID];
+            int end = workersDivision[workerID + 1];
+            System.out.println("Thread " + workerID + " is indexing articles from " + start + " to " + end);
+            WorkerSearch worker = new WorkerSearch(start, end, workerID);
+            executor.execute(worker);
         }
+
         executor.shutdown();
         try {
             executor.awaitTermination(4, TimeUnit.HOURS);
@@ -380,52 +307,81 @@ public class PageRank {
             System.exit(-2);
         }
         long tend = System.currentTimeMillis();
-        System.out.println("Total time for references indexing/storing: " + (tend-tstart)*0.001);
+        System.out.println("Total time for references indexing/storing: " + (tend - tstart) * 0.001);
+
+        iwriter.commit();
+        iwriter.close();
+        ireader.close();
+        deleteFolder(TEMP_INDEX_FOLDERNAME);
+        deleteFolder(SAVE_INDEX_FOLDERNAME);
+        duplicateFolder(INDEX_FOLDERNAME, SAVE_INDEX_FOLDERNAME);
+
+        /**
+         * -------- Second stage INVERTING --------
+         * Invert the references vector stored in REFS_INDEX_FOLDERNAME.
+         */
+        renameFolder(INDEX_FOLDERNAME, TEMP_INDEX_FOLDERNAME);
+        iwriter = new IdxWriter(INDEX_FOLDERNAME);
+        ireader = new IdxReader(TEMP_INDEX_FOLDERNAME);
+        isearcher = new IdxSearcher(ireader);
+        numCores = 4;
+        int nbatches = 16;
+        Integer[] batchesDivision = coalesce(nbatches, ireader.numDocs());
+        System.out.println("Inverting " + ireader.numDocs() + " vectors with " + numCores + " cores in " + nbatches + " batches");
 
 
-        // Compute Page Rank efficient algorithm in parallel (first worker will compute page rank with binary references
-        // and the second worker will compute it with count references).
-        tstart = System.currentTimeMillis();
-        executor = Executors.newFixedThreadPool(2);
-
-        for (int workerID = 0; workerID < 2; workerID++) {
-            WorkerPageRank worker = new WorkerPageRank(workerID);
-            executor.execute(worker);
+        for (int batch = 0; batch < nbatches; batch++) {
+            executor = Executors.newFixedThreadPool(numCores);
+            workersDivision = coalesce(numCores, (batchesDivision[batch + 1] - batchesDivision[batch]));
+            System.out.println("Batch " + batch + " starting");
+            for (int workerID = 0; workerID < numCores; workerID++) {
+                int start = workersDivision[workerID] + batchesDivision[batch];
+                int end = workersDivision[workerID + 1] + batchesDivision[batch];
+                System.out.println("Thread " + workerID + " is inverting references from " + start + " to " + end);
+                WorkerInverse worker = new WorkerInverse(start, end, workerID);
+                executor.execute(worker);
+            }
+            executor.shutdown();
+            try {
+                executor.awaitTermination(4, TimeUnit.HOURS);
+            } catch (final InterruptedException e) {
+                e.printStackTrace();
+                System.exit(-2);
+            }
+            System.out.println("Batch " + batch + " has finished");
         }
-        executor.shutdown();
-        try {
-            executor.awaitTermination(4, TimeUnit.HOURS);
-        } catch (final InterruptedException e) {
-            e.printStackTrace();
-            System.exit(-2);
-        }
-        tend = System.currentTimeMillis();
-        System.out.println("Page Rank global time (in seconds): " + (tend-tstart)*0.001);
 
-        // close the writer
-        try {
-            iwriter.commit();
-            iwriter.close();
-        } catch (CorruptIndexException e) {
-            System.out.println("CorruptIndexException while closing the index writer");
-            e.printStackTrace();
-        } catch (IOException e) {
-            System.out.println("IOException while closing the index writer");
-            e.printStackTrace();
-        }
+        iwriter.commit();
+        iwriter.close();
+        ireader.close();
+        deleteFolder(TEMP_INDEX_FOLDERNAME);
+        deleteFolder(SAVE_INDEX_FOLDERNAME);
+        duplicateFolder(INDEX_FOLDERNAME, SAVE_INDEX_FOLDERNAME);
+
+
+        /**
+         * -------- Third stage PAGE RANK --------
+         * Computes PageRank
+         */
+        renameFolder(INDEX_FOLDERNAME, TEMP_INDEX_FOLDERNAME);
+        iwriter = new IdxWriter(INDEX_FOLDERNAME);
+        ireader = new IdxReader(TEMP_INDEX_FOLDERNAME);
+        isearcher = null;
+        binaryPageRank = new ArrayRealVector(ireader.numDocs(), (double) 1 / ireader.numDocs());
+        countPageRank = new ArrayRealVector(ireader.numDocs(), (double) 1 / ireader.numDocs());
+
+        computePageRank();
+
+        iwriter.commit();
+        iwriter.close();
+        ireader.close();
+        deleteFolder(TEMP_INDEX_FOLDERNAME);
+        deleteFolder(SAVE_INDEX_FOLDERNAME);
     }
 
 
     public static void main(String[] args) {
-        IndexWriter writer = createIndexWriter(PoolIndexing.INDEX_FOLDERNAME);
-        ReaderSearcher objReaderSearcher = new ReaderSearcher(
-                Paths.get(PoolIndexing.INDEX_FOLDERNAME),
-                PoolIndexing.similarity);
-        IndexSearcher searcher = objReaderSearcher.searcher();
-        IndexReader reader = objReaderSearcher.reader();
-
-        PageRank pool = new PageRank(writer, reader, searcher, false);
-        pool.launch();
-
+        PageRank algorithm = new PageRank();
+        algorithm.launch();
     }
 }

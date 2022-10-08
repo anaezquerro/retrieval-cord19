@@ -1,4 +1,4 @@
-package es.udc.fi.irdatos.c2122.util;
+package util;
 
 import java.io.IOException;
 import java.nio.file.Path;
