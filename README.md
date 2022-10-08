@@ -183,7 +183,7 @@ $$ \begin{cases}
   \end{cases}
   $$
 
-*Note*: $o$ vectors are the column vectors obtained by row-stacking $t_i$ for $i=1,...,n$ in normalized vectors in a matrix.
+*Note*: $\vec{o}$ vectors are the column vectors obtained by row-stacking normalized vectors $\vec{t}_i$ for $i=1,...,n$  in a matrix.
 
 With the inverse-references normalized vectors we can compute the PageRank algorithm until convergence.
 
