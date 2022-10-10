@@ -30,7 +30,6 @@ public class Embedding {
         );
     }
 
-
     public Embedding(ArrayRealVector vector) {
         size = vector.getDimension();
         floatEmbedding = new float[size];

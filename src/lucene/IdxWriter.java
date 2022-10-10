@@ -30,12 +30,15 @@ public class IdxWriter {
         } catch (CorruptIndexException e) {
             System.out.println("CorruptIndexException while creating IndexWriter at " + foldername);
             e.printStackTrace();
+            System.exit(-1);
         } catch (LockObtainFailedException e) {
             System.out.println("LockObtainFailedException while creating IndexWriter at " + foldername);
             e.printStackTrace();
+            System.exit(-1);
         } catch (IOException e) {
             System.out.println("IOException while creating IndexWriter at " + foldername);
             e.printStackTrace();
+            System.exit(-1);
         }
     }
 
@@ -46,6 +49,7 @@ public class IdxWriter {
             System.out.println("IOException while adding document with cordID=" + doc.get("cordID") + " in " +
                     "index " + foldername);
             e.printStackTrace();
+            System.exit(-1);
         }
     }
 
@@ -55,6 +59,7 @@ public class IdxWriter {
         } catch (IOException e) {
             System.out.println("IOException while closing IndexWriter in " + foldername);
             e.printStackTrace();
+            System.exit(-1);
         }
     }
 
@@ -64,6 +69,7 @@ public class IdxWriter {
         } catch (IOException e) {
             System.out.println("IOException while commit IndexWriter in " + foldername);
             e.printStackTrace();
+            System.exit(-1);
         }
     }
 }

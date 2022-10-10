@@ -21,11 +21,16 @@ public class IdxSearcher {
             topDocs = searcher.search(query, top);
         } catch (IOException e) {
             System.out.println("IOException while searching in " + foldername + " the query " + query.toString());
+            System.exit(-1);
         }
         return topDocs;
     }
 
     public IndexSearcher searcher() {
         return searcher;
+    }
+
+    public String toString() {
+        return this.foldername;
     }
 }

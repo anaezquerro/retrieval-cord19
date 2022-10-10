@@ -26,6 +26,8 @@ public class VectorModel extends RetrievalModel {
 
     public VectorModel(IdxReader reader, IdxSearcher searcher, double alpha, double beta, double gamma, int iterations) {
         super(reader, searcher);
+        this.reader = reader;
+        this.searcher = searcher;
         this.alpha = alpha;
         this.beta = beta;
         this.gamma = gamma;
@@ -42,8 +44,8 @@ public class VectorModel extends RetrievalModel {
         return vectorQuery(embedding, topN);
     }
 
-    private List<TopDocument> vectorQuery(Embedding embedding, int topN) {
-        Query knnQuery = new KnnVectorQuery("knn-embedding", embedding.getFloat(), topN);
+    private List<TopDocument> vectorQuery(Embedding queryEmbedding, int topN) {
+        Query knnQuery = new KnnVectorQuery("knn-embedding", queryEmbedding.getFloat(), topN);
         TopDocs topDocs = searcher.search(knnQuery, topN);
         return super.coerce(topDocs, topN);
     }

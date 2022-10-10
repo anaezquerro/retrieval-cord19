@@ -15,11 +15,10 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record Metadata(
-    @JsonProperty("cord_uid") String cordUid,
+    @JsonProperty("cord_uid") String cordUID,
     String title,
     List<String> authors,
-    @JsonProperty("publish_time") String publishDate,
-    @JsonProperty("abstract") String abstrac,
+    @JsonProperty("abstract") String abstractt,
     String journal,
     @JsonProperty("pmc_json_files") String pmcFile,
     @JsonProperty("pdf_json_files") List<String> pdfFiles

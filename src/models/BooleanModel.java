@@ -25,6 +25,8 @@ public class BooleanModel extends RetrievalModel {
 
     public BooleanModel(IdxReader reader, IdxSearcher searcher) {
         super(reader, searcher);
+        this.reader = reader;
+        this.searcher = searcher;
     }
 
     public List<TopDocument> query(TopicQuery topicQuery, int topN) {

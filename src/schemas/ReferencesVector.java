@@ -1,5 +1,6 @@
 package schemas;
 
+import org.apache.commons.math3.exception.DimensionMismatchException;
 import org.apache.commons.math3.linear.ArrayRealVector;
 
 import static util.AuxiliarFunctions.*;
@@ -8,6 +9,7 @@ import static cords.PageRank.VECTOR_ITEM_SEP;
 public class ReferencesVector {
     private ArrayRealVector binaryVector;
     private ArrayRealVector countVector;
+    private int size;
 
     public class ReferenceEntry {
         private double binaryValue;
@@ -27,19 +29,23 @@ public class ReferencesVector {
         }
     }
 
-    public ReferencesVector(ArrayRealVector binaryVector, ArrayRealVector countVector) {
+    public ReferencesVector(ArrayRealVector binaryVector, ArrayRealVector countVector) throws DimensionMismatchException {
+        if (binaryVector.getDimension() != countVector.getDimension()) {
+            throw new DimensionMismatchException(binaryVector.getDimension(), countVector.getDimension());
+        }
         this.binaryVector = binaryVector;
         this.countVector = countVector;
+        size = binaryVector.getDimension();
     }
 
     public ReferencesVector(int size) {
-        binaryVector = new ArrayRealVector(size);
-        countVector = new ArrayRealVector(size);
+        this.size = size;
+        binaryVector = new ArrayRealVector(size, 0.0);
+        countVector = new ArrayRealVector(size, 0.0);
     }
 
     public ReferencesVector(String binaryString, String countString) {
-        this.binaryVector = string2vector(binaryString, VECTOR_ITEM_SEP);
-        this.countVector = string2vector(countString, VECTOR_ITEM_SEP);
+        this(string2vector(binaryString, VECTOR_ITEM_SEP), string2vector(countString, VECTOR_ITEM_SEP));
     }
 
     public ArrayRealVector binary() {

@@ -19,11 +19,13 @@ public class IdxReader {
             Directory directory = FSDirectory.open(Paths.get(foldername));
             reader = DirectoryReader.open(directory);
         } catch (CorruptIndexException e) {
-            System.out.println("CorruptIndexEception while reading " + foldername);
+            System.out.println("CorruptIndexException while reading " + foldername);
             e.printStackTrace();
+            System.exit(-1);
         } catch (IOException e) {
             System.out.println("IOException while reading " + foldername);
             e.printStackTrace();
+            System.exit(-1);
         }
     }
 
@@ -38,6 +40,7 @@ public class IdxReader {
         } catch (IOException e) {
             System.out.println("IOException while reading document with docID=" + docID + " in " + foldername);
             e.printStackTrace();
+            System.exit(-1);
         }
         return doc;
     }
@@ -56,17 +59,18 @@ public class IdxReader {
         } catch (IOException e) {
             System.out.println("IOException while closing IndexReader in " + foldername);
             e.printStackTrace();
+            System.exit(-1);
         }
     }
 
     public Terms getTermVector(int docID, String fieldname) {
-        Terms vector;
+        Terms vector = null;
         try {
             vector = reader.getTermVector(docID, fieldname);
         } catch (IOException e) {
             System.out.println("IOException while reading term vector of document " + docID);
             e.printStackTrace();
-            return null;
+            System.exit(-1);
         }
         return vector;
     }
@@ -79,6 +83,7 @@ public class IdxReader {
             System.out.println("IOException while calling the doc frequency of term " + term.text() + " in " +
                     "field" + term.field());
             e.printStackTrace();
+            System.exit(-1);
         }
         return (double) freq;
     }

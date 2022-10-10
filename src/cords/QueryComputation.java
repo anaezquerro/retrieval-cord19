@@ -45,6 +45,7 @@ public class QueryComputation {
 
         List<TopDocument> topDocs;
         for (TopicQuery topicQuery : topics) {
+            System.out.println("Computing query for topic = " + topicQuery.topicID());
             setFieldsWeights(topicQuery);
             topDocs = model.query(topicQuery, n);
             results.put(topicQuery.topicID(), topDocs);

@@ -16,7 +16,7 @@ public record Topics(
             @JacksonXmlProperty(localName="number", isAttribute = true)
             int number,
 
-            @JacksonXmlProperty(localName = "models")
+            @JacksonXmlProperty(localName = "query")
             String query,
 
             @JacksonXmlProperty(localName = "question")

@@ -12,8 +12,6 @@ import formats.Metadata;
 import formats.RelevanceJudgements;
 import formats.Topics;
 import lucene.IdxReader;
-import org.apache.lucene.index.IndexableField;
-import org.apache.lucene.util.BytesRef;
 import schemas.*;
 import util.ObjectReaderUtils;
 
@@ -198,7 +196,7 @@ public class CollectionReader {
             return null;
         }
         parsedArticle.setTitle(rowMetadata.title());
-        parsedArticle.setAbstract(rowMetadata.abstrac());
+        parsedArticle.setAbstract(rowMetadata.abstractt());
         return parsedArticle;
     }
 
@@ -242,14 +240,17 @@ public class CollectionReader {
             topics = topicsList.topic();
         } catch (IOException e) {
             System.out.println("IOException while reading topics in: " + topicsPath.toString());
+            System.exit(-1);
             return null;
         }
 
         List<TopicQuery> topicsQuery = new ArrayList<>();
+        int i = 0;
         for (int topicID : topicEmbeddings.keySet()) {
             topicsQuery.add(
-                    new TopicQuery(topicID, topics[topicID].query(), topicEmbeddings.get(topicID))
+                    new TopicQuery(topicID, topics[i].query(), topicEmbeddings.get(topicID))
             );
+            i++;
         }
         return topicsQuery;
     }

@@ -68,7 +68,7 @@ public class PoolIndexing {
                 Document doc = new Document();
 
                 // Add rowMetadata UID as stored field
-                doc.add(new StoredField("cordUID", rowMetadata.cordUid()));
+                doc.add(new StoredField("cordUID", rowMetadata.cordUID()));
 
                 // title: stored, tokenized, term-vectorized
                 FieldType titleFieldType = new FieldType();
@@ -84,11 +84,11 @@ public class PoolIndexing {
                 abstractFieldType.setStored(true);
                 abstractFieldType.setTokenized(true);
                 abstractFieldType.setStoreTermVectors(true);
-                doc.add(new Field("abstract", rowMetadata.abstrac(), abstractFieldType));
+                doc.add(new Field("abstract", rowMetadata.abstractt(), abstractFieldType));
 
                 // document embedding
-                if (docEmbeddings.keySet().contains(rowMetadata.cordUid())) {
-                    Embedding docEmbedding = docEmbeddings.get(rowMetadata.cordUid());
+                if (docEmbeddings.keySet().contains(rowMetadata.cordUID())) {
+                    Embedding docEmbedding = docEmbeddings.get(rowMetadata.cordUID());
                     doc.add(new KnnVectorField("knn-embedding", docEmbedding.getFloat()));
                     doc.add(new StoredField("embedding", docEmbedding.toString()));
                 }

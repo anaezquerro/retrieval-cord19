@@ -22,6 +22,8 @@ public class ProbabilityModel extends RetrievalModel {
 
     public ProbabilityModel(IdxReader reader, IdxSearcher searcher, int numTerms, String[] expandFields) {
         super(reader, searcher);
+        this.reader = reader;
+        this.searcher = searcher;
         baseModel = new BooleanModel(reader, searcher);
         this.numTerms = numTerms;
         this.expandFields = expandFields;

@@ -81,6 +81,8 @@ public class PageRank {
     int m = 2;
     private int iterations = 100;
     public static float alpha = 0.1F;
+    private int numCoresInvert = 8;
+    private int nbatchesInvert = 16;
 
 
     /**
@@ -137,12 +139,12 @@ public class PageRank {
                         try {
                             queryTitle = parserTitle.parse(trefTitle);
                             queryAuthor = parserAuthors.parse(trefAuthors);
+                            booleanQueryBuilder.add(queryTitle, BooleanClause.Occur.SHOULD);
+                            booleanQueryBuilder.add(queryAuthor, BooleanClause.Occur.SHOULD);
                         } catch (ParseException e) {
                             e.printStackTrace();
-                            continue;
+                            System.exit(-1);
                         }
-                        booleanQueryBuilder.add(queryTitle, BooleanClause.Occur.SHOULD);
-                        booleanQueryBuilder.add(queryAuthor, BooleanClause.Occur.SHOULD);
 
                         // build the query and execute
                         BooleanQuery booleanQuery = booleanQueryBuilder.build();
@@ -280,34 +282,25 @@ public class PageRank {
     }
 
 
-    public void launch() {
-        deleteFolder(TEMP_INDEX_FOLDERNAME);
-        if (exists(SAVE_INDEX_FOLDERNAME)) {
-            deleteFolder(INDEX_FOLDERNAME);
-            renameFolder(SAVE_INDEX_FOLDERNAME, INDEX_FOLDERNAME);
-        }
+    private void searching() {
 
         int numCores = Runtime.getRuntime().availableProcessors();
         ExecutorService executor = Executors.newFixedThreadPool(numCores);
 
-        /**
-         * -------- First stage SEARCHING --------
-         * Compute searching of matches between references and documents.
-         */
-        duplicateFolder(INDEX_FOLDERNAME, SAVE_INDEX_FOLDERNAME);
+        duplicateFolder(INDEX_FOLDERNAME, SAVE_INDEX_FOLDERNAME);   // store a safe copy
         renameFolder(INDEX_FOLDERNAME, TEMP_INDEX_FOLDERNAME);
+
         iwriter = new IdxWriter(INDEX_FOLDERNAME);
         ireader = new IdxReader(TEMP_INDEX_FOLDERNAME);
         isearcher = new IdxSearcher(ireader);
 
-        System.out.println("Indexing references with " + numCores + " cores");
-        System.out.println("A total of " + ireader.numDocs() + " articles will be indexed");
+        System.out.println("Applying PageRank searching over " + ireader.numDocs() + " docs with " + numCores + " cores");
         Integer[] workersDivision = coalesce(numCores, ireader.numDocs());
 
-        for (int workerID = 0; workerID < numCores; workerID++) {
+        for (int workerID=0; workerID < numCores; workerID++) {
             int start = workersDivision[workerID];
             int end = workersDivision[workerID + 1];
-            System.out.println("Thread " + workerID + " is indexing articles from " + start + " to " + end);
+            System.out.println("Worker " + workerID + " is searching in docs " + start + " - " + end);
             WorkerSearch worker = new WorkerSearch(start, end, workerID);
             executor.execute(worker);
         }
@@ -319,36 +312,39 @@ public class PageRank {
             e.printStackTrace();
             System.exit(-2);
         }
+        System.out.println("All tasks have finished successfully");
 
+        // close IndexWriter and IndexReader
         iwriter.commit();
         iwriter.close();
         ireader.close();
+
+        // remove temporary folder
         deleteFolder(TEMP_INDEX_FOLDERNAME);
         deleteFolder(SAVE_INDEX_FOLDERNAME);
-        duplicateFolder(INDEX_FOLDERNAME, SAVE_INDEX_FOLDERNAME);
+    }
 
-        /**
-         * -------- Second stage INVERTING --------
-         * Invert the references vector stored in REFS_INDEX_FOLDERNAME.
-         */
+    public void inverting() {
+        duplicateFolder(INDEX_FOLDERNAME, SAVE_INDEX_FOLDERNAME); // safe copy
         renameFolder(INDEX_FOLDERNAME, TEMP_INDEX_FOLDERNAME);
         iwriter = new IdxWriter(INDEX_FOLDERNAME);
         ireader = new IdxReader(TEMP_INDEX_FOLDERNAME);
         isearcher = new IdxSearcher(ireader);
-        numCores = 12;
-        int nbatches = 16;
-        Integer[] batchesDivision = coalesce(nbatches, ireader.numDocs());
-        System.out.println("Inverting " + ireader.numDocs() + " vectors with " + numCores + " cores in " + nbatches + " batches");
 
+        System.out.println("Applying PageRank inverting process over " + ireader.numDocs() +
+                " docs with " + numCoresInvert + " in " + nbatchesInvert + " batches");
 
-        for (int batch = 0; batch < nbatches; batch++) {
-            executor = Executors.newFixedThreadPool(numCores);
-            workersDivision = coalesce(numCores, (batchesDivision[batch + 1] - batchesDivision[batch]));
-            System.out.println("Batch " + batch + " starting");
-            for (int workerID = 0; workerID < numCores; workerID++) {
+        Integer[] batchesDivision = coalesce(nbatchesInvert, ireader.numDocs());
+
+        for (int batch=0; batch < nbatchesInvert; batch++) {
+            System.out.println("Batch " + batch + " starting with docs " + batchesDivision[batch] + " - " + batchesDivision[batch+1]);
+
+            ExecutorService executor = Executors.newFixedThreadPool(numCoresInvert);
+            Integer[] workersDivision = coalesce(numCoresInvert, (batchesDivision[batch + 1] - batchesDivision[batch]));
+            for (int workerID = 0; workerID < numCoresInvert; workerID++) {
                 int start = workersDivision[workerID] + batchesDivision[batch];
                 int end = workersDivision[workerID + 1] + batchesDivision[batch];
-                System.out.println("Thread " + workerID + " is inverting references from " + start + " to " + end);
+                System.out.println("Worker " + workerID + " is inverting references from " + start + " to " + end);
                 WorkerInverse worker = new WorkerInverse(start, end, workerID);
                 executor.execute(worker);
             }
@@ -367,13 +363,11 @@ public class PageRank {
         ireader.close();
         deleteFolder(TEMP_INDEX_FOLDERNAME);
         deleteFolder(SAVE_INDEX_FOLDERNAME);
-        duplicateFolder(INDEX_FOLDERNAME, SAVE_INDEX_FOLDERNAME);
+    }
 
 
-        /**
-         * -------- Third stage PAGE RANK --------
-         * Computes PageRank
-         */
+    public void pagerank() {
+        duplicateFolder(INDEX_FOLDERNAME, SAVE_INDEX_FOLDERNAME); // safe copy
         renameFolder(INDEX_FOLDERNAME, TEMP_INDEX_FOLDERNAME);
         iwriter = new IdxWriter(INDEX_FOLDERNAME);
         ireader = new IdxReader(TEMP_INDEX_FOLDERNAME);
@@ -390,6 +384,29 @@ public class PageRank {
         iwriter.close();
         ireader.close();
         deleteFolder(TEMP_INDEX_FOLDERNAME);
+        deleteFolder(SAVE_INDEX_FOLDERNAME);
+    }
+
+    public void launch() {
+
+        /**
+         * -------- First stage SEARCHING --------
+         * Compute searching of matches between references and documents.
+         */
+//        searching();
+
+        /**
+         * -------- Second stage INVERTING --------
+         * Invert the references vector stored in REFS_INDEX_FOLDERNAME.
+         */
+//        inverting();
+
+
+        /**
+         * -------- Third stage PAGE RANK --------
+         * Computes PageRank
+         */
+        pagerank();
     }
 
 

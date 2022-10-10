@@ -141,6 +141,7 @@ public class QueryEvaluation {
         List<TopicQuery> topics = readTopics();
         Map<Integer, List<String>> topicRelevDocs = readRelevanceJudgements();
 
+
         // create the reader and the searcher
         IdxReader ireader = new IdxReader(INDEX_FOLDERNAME);
         IdxSearcher isearcher = new IdxSearcher(ireader);
@@ -152,7 +153,7 @@ public class QueryEvaluation {
         long end = System.currentTimeMillis();
 
         // Generate the results
-        generateResults(topicsTopDocs, "round5-submission.txt", n);
+        generateResults(topicsTopDocs, COLLECTION_PATH.toString() + "/round5-submission.txt", n);
 
         // Compute MAP@k metric
         float mAPk = meanAveragePrecision(topicsTopDocs, topicRelevDocs, k);
