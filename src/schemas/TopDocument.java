@@ -13,6 +13,8 @@ public class TopDocument {
     private String title;
     private String authors;
     private int docID;
+    private double binaryPageRank;
+    private double countPageRank;
 
     public TopDocument(Document doc, int docID, double score) {
         this.cordUID = doc.get("cordUID");
@@ -21,6 +23,8 @@ public class TopDocument {
         this.title = doc.get("title");
         this.authors = doc.get("authors");
         this.embedding = new Embedding(doc.get("embedding"));
+        this.binaryPageRank = Double.parseDouble(doc.get("binaryPageRank"));
+        this.countPageRank = Double.parseDouble(doc.get("countPageRank"));
     }
 
 
@@ -45,5 +49,8 @@ public class TopDocument {
         return docID;
     }
 
+    public void setScore(double score) {
+        this.score = score;
+    }
 
 }

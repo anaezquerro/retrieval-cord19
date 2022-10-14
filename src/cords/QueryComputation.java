@@ -2,10 +2,7 @@ package cords;
 
 import lucene.IdxReader;
 import lucene.IdxSearcher;
-import models.BooleanModel;
-import models.ProbabilityModel;
-import models.RetrievalModel;
-import models.VectorModel;
+import models.*;
 import schemas.TopDocument;
 import schemas.TopicQuery;
 
@@ -39,8 +36,10 @@ public class QueryComputation {
             model = new BooleanModel(ireader, isearcher);
         } else if (typeQuery==2) {
             model = new VectorModel(ireader, isearcher, 0.1, 0.8, 0.5, 5);
-        } else {
+        } else if (typeQuery==3){
             model = new ProbabilityModel(ireader, isearcher, 2, new String[]{"title", "abstract"});
+        } else {
+            model = new PageRankModel(ireader, isearcher, true);
         }
 
         List<TopDocument> topDocs;
