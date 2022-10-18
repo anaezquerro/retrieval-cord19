@@ -1,6 +1,7 @@
 package schemas;
 
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -114,6 +115,7 @@ public class ParsedArticle {
         return authors;
 
     }
+
     public List<ParsedReference> references() {
         return references;
     }

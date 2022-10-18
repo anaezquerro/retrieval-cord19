@@ -101,7 +101,7 @@ public class CollectionReader {
      * @param articlePath : Path to the JSON file.
      * @return ParsedArticle.
      */
-    public static ParsedArticle parseArticle(Path articlePath) {
+    public static ParsedArticle parseArticle(Path articlePath, int bodyLines) {
         // -------------------------- READING --------------------------
         Article article;
         try {
@@ -130,7 +130,8 @@ public class CollectionReader {
         }
 
         // add article text and count references to update the counts
-        for (Article.Content paragraph : article.body_text()) {
+        List<Article.Content> paragraphs = article.body_text().subList(0, Math.min(article.body_text().size(), bodyLines));
+        for (Article.Content paragraph : paragraphs) {
             bodyBuilder.append(paragraph.section() + "\n" + paragraph.text() + "\n");
             for (Article.Content.Cite cite : paragraph.cite_spans()) {
                 if (parsedReferences.containsKey(cite.ref_id())) {
@@ -159,11 +160,11 @@ public class CollectionReader {
      * @param articlePaths List of paths to JSON files.
      * @return ParsedArticle.
      */
-    public static ParsedArticle parseArticles(List<Path> articlePaths) {
+    public static ParsedArticle parseArticles(List<Path> articlePaths, int bodyLines) {
         ParsedArticle completeArticle = new ParsedArticle(null, null, "", "", new ArrayList<>());
         ParsedArticle partialArticle;
         for (Path article : articlePaths) {
-            partialArticle = parseArticle(article);
+            partialArticle = parseArticle(article, bodyLines);
             completeArticle.addBody("\n" + partialArticle.body());
             String partialAuthors = String.join(AUTHORS_SEPARATOR,
                     Arrays.stream(partialArticle.authors().split(AUTHORS_SEPARATOR))
@@ -184,14 +185,14 @@ public class CollectionReader {
      * @param rowMetadata Metadata object.
      * @returns Parsed article with all the content.
      */
-    public static final ParsedArticle parseRowMetadata(Metadata rowMetadata) {
+    public static final ParsedArticle parseRowMetadata(Metadata rowMetadata, int bodyLines) {
         ParsedArticle parsedArticle;
         if (rowMetadata.pmcFile().length() != 0) {
-            parsedArticle = parseArticle(COLLECTION_PATH.resolve(rowMetadata.pmcFile()));
+            parsedArticle = parseArticle(COLLECTION_PATH.resolve(rowMetadata.pmcFile()), bodyLines);
         } else if (rowMetadata.pdfFiles().size() >= 1) {
             parsedArticle = parseArticles(
-                    rowMetadata.pdfFiles().stream().map(pdfPath -> COLLECTION_PATH.resolve(pdfPath)).toList()
-            );
+                    rowMetadata.pdfFiles().stream().map(pdfPath -> COLLECTION_PATH.resolve(pdfPath)).toList(),
+            bodyLines);
         } else {
             return null;
         }

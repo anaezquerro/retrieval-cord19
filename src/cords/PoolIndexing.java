@@ -31,12 +31,13 @@ import static cords.CollectionReader.*;
 public class PoolIndexing {
     private Path POOL_COLLECTION_PATH = COLLECTION_PATH;
     private String TEMP_PREFFIX = "temp";
-    public static String INDEX_FOLDERNAME = "Index-LMJelinekMercer";
+    public static String INDEX_FOLDERNAME = "Index-LMJelinekMercer-short";
     private String TEMP_INDEX_FOLDERNAME = TEMP_PREFFIX + INDEX_FOLDERNAME;
     public static IdxWriter iwriter;
     public static Similarity similarity = new LMJelinekMercerSimilarity(0.1F);
     public static Map<String, Embedding> docEmbeddings;
     private final int numCores =  Runtime.getRuntime().availableProcessors();
+    private final int bodyLines = 3;
 
 
     private class WorkerIndexing implements Runnable {
@@ -60,7 +61,7 @@ public class PoolIndexing {
         @Override
         public void run() {
             for (Metadata rowMetadata : metadataSlice) {
-                ParsedArticle parsedArticle = parseRowMetadata(rowMetadata);
+                ParsedArticle parsedArticle = parseRowMetadata(rowMetadata, bodyLines);
                 if (Objects.isNull(parsedArticle)) {
                     continue;
                 }

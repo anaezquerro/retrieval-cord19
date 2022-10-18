@@ -1,6 +1,8 @@
 package schemas;
 import org.apache.lucene.document.Document;
 
+import java.util.Objects;
+
 /**
  * Stores only required attributes of each document and query in order to compute the designed reranking methods and
  * results.
@@ -23,8 +25,10 @@ public class TopDocument {
         this.title = doc.get("title");
         this.authors = doc.get("authors");
         this.embedding = new Embedding(doc.get("embedding"));
-        this.binaryPageRank = Double.parseDouble(doc.get("binaryPageRank"));
-        this.countPageRank = Double.parseDouble(doc.get("countPageRank"));
+        try {
+            this.binaryPageRank = Double.parseDouble(doc.get("binaryPageRank"));
+            this.countPageRank = Double.parseDouble(doc.get("countPageRank"));
+        } catch (NullPointerException e) {}
     }
 
 
